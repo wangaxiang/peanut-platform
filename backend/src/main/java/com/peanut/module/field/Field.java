@@ -33,7 +33,7 @@ public class Field {
     protected Field() {
     }
 
-    void update(FieldRequest request, Polygon polygon, BigDecimal area, OffsetDateTime now) {
+    void update(FieldCreateRequest request, Polygon polygon, BigDecimal area, OffsetDateTime now) {
         name = request.name();
         geometry = polygon;
         areaMu = area;

@@ -44,24 +44,24 @@ public class FieldService {
     }
 
     @Transactional
-    public FieldResponse create(FieldRequest request) {
+    public FieldVO create(FieldCreateRequest request) {
         Field field = new Field();
         apply(field, request);
         return response(fields.save(field), LocalDate.now(clock));
     }
 
     @Transactional
-    public FieldResponse update(long id, FieldRequest request) {
+    public FieldVO update(long id, FieldCreateRequest request) {
         Field field = requireField(id);
         apply(field, request);
         return response(field, LocalDate.now(clock));
     }
 
-    public FieldResponse get(long id) {
+    public FieldVO get(long id) {
         return response(requireField(id), LocalDate.now(clock));
     }
 
-    public Page<FieldResponse> list(String keyword, Pageable pageable) {
+    public Page<FieldVO> list(String keyword, Pageable pageable) {
         for (Sort.Order order : pageable.getSort()) {
             if (!SORT_PROPERTIES.contains(order.getProperty())) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported sort field: " + order.getProperty());
@@ -109,7 +109,7 @@ public class FieldService {
         return fields.findById(id).orElseThrow(() -> fieldNotFound(id));
     }
 
-    private void apply(Field field, FieldRequest request) {
+    private void apply(Field field, FieldCreateRequest request) {
         Polygon polygon = parsePolygon(request.geometry());
         BigDecimal area = fields.calculateAreaMu(new WKBWriter(2, true).write(polygon))
                 .setScale(2, RoundingMode.HALF_UP);
@@ -119,7 +119,7 @@ public class FieldService {
         field.update(request, polygon, area, OffsetDateTime.now(clock));
     }
 
-    private FieldResponse response(Field field, LocalDate today) {
+    private FieldVO response(Field field, LocalDate today) {
         GeoJsonWriter writer = new GeoJsonWriter(15);
         writer.setEncodeCRS(false);
         JsonNode geometry;
@@ -129,7 +129,7 @@ public class FieldService {
             throw new IllegalStateException("Could not serialize field geometry", exception);
         }
         Long days = daysAfterSow(field.sowDate, today);
-        return new FieldResponse(field.id, field.name, geometry, field.areaMu, field.soilType,
+        return new FieldVO(field.id, field.name, geometry, field.areaMu, field.soilType,
                 field.variety, field.sowDate, field.ownerName, field.remark, field.createdAt,
                 field.updatedAt, growthStage(days), days);
     }
@@ -157,9 +157,9 @@ public class FieldService {
         return "收获期";
     }
 
-    private Polygon parsePolygon(JsonNode input) {
+    private Polygon parsePolygon(String input) {
         try {
-            JsonNode geometry = input.isTextual() ? json.readTree(input.textValue()) : input;
+            JsonNode geometry = json.readTree(input);
             validateCoordinates(geometry);
             Geometry parsed = new GeoJsonReader().read(geometry.toString());
             if (!(parsed instanceof Polygon polygon) || polygon.isEmpty() || !polygon.isValid()) {

@@ -32,6 +32,6 @@ public class FarmEventService {
         if (fields.lockForEvent(fieldId).isEmpty()) {
             throw FieldService.fieldNotFound(fieldId);
         }
-        return events.insert(fieldId, event);
+        return events.save(new FarmEvent(fieldId, event));
     }
 }

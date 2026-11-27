@@ -2,6 +2,8 @@ package com.peanut.module.field;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
+import jakarta.persistence.AttributeConverter;
+import jakarta.persistence.Converter;
 
 public enum FarmEventType {
     SOW("sow"),
@@ -29,5 +31,18 @@ public enum FarmEventType {
             }
         }
         throw new IllegalArgumentException("Unknown farm event type");
+    }
+
+    @Converter
+    public static class DatabaseValue implements AttributeConverter<FarmEventType, String> {
+        @Override
+        public String convertToDatabaseColumn(FarmEventType value) {
+            return value == null ? null : value.value();
+        }
+
+        @Override
+        public FarmEventType convertToEntityAttribute(String value) {
+            return value == null ? null : fromValue(value);
+        }
     }
 }

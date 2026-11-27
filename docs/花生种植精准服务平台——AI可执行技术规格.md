@@ -256,12 +256,7 @@ GET    /api/fields/stats            # 汇总统计（总地块数、总面积、
 // POST /api/fields  请求体
 {
   "name": "东区3号田",
-  "geometry": {
-    "type": "Polygon",
-    "coordinates": [[[115.456, 36.123], [115.460, 36.123],
-                     [115.460, 36.126], [115.456, 36.126],
-                     [115.456, 36.123]]]
-  },
+  "geometry": "{\"type\":\"Polygon\",\"coordinates\":[[[115.456,36.123],[115.460,36.123],[115.460,36.126],[115.456,36.126],[115.456,36.123]]]}",
   "soilType": "壤土",
   "variety": "花育25号",
   "sowDate": "2024-05-10",
@@ -281,9 +276,9 @@ GET    /api/fields/stats            # 汇总统计（总地块数、总面积、
 }
 ```
 
-创建或修改地块时，`geometry` 支持 GeoJSON 对象及其序列化字符串。地块响应中的 `geometry` 始终是 GeoJSON 对象。统计接口的 `data` 为 `{totalCount, totalAreaMu, varietyStats:[{variety,count,areaMu}]}`。
+创建或修改地块时，`geometry` 使用序列化后的 GeoJSON 字符串。地块响应中的 `geometry` 始终是 GeoJSON 对象。统计接口的 `data` 为 `{totalCount, totalAreaMu, varietyStats:[{variety,count,areaMu}]}`。
 
-本地后端与数据库启动后，在 `frontend/` 执行 `npm ci` 和 `npm run dev`，浏览器访问 `http://localhost:3000`。在 `frontend/.env.local` 中配置 `VITE_TIANDITU_TOKEN` 并重启前端可切换到天地图影像。未配置时使用 Esri 卫星影像。
+本地后端与数据库启动后，在 `frontend/` 执行 `npm ci` 和 `npm run dev`，浏览器访问 `http://localhost:3000`。在 `frontend/.env.local` 中配置 `VITE_TIANDITU_TOKEN` 并重启前端可切换到天地图影像。未配置时使用 Esri 卫星影像。绘图使用 MapLibre 官方示例采用的 npm 包 `@mapbox/mapbox-gl-draw`。
 
 ### 2.3 生育期推算算法
 

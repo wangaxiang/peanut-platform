@@ -26,23 +26,23 @@ public class FieldController {
     }
 
     @PostMapping
-    public ApiResult<FieldResponse> create(@Valid @RequestBody FieldRequest request) {
+    public ApiResult<FieldVO> create(@Valid @RequestBody FieldCreateRequest request) {
         return ApiResult.ok(fields.create(request));
     }
 
     @GetMapping
-    public ApiResult<Page<FieldResponse>> list(@RequestParam(defaultValue = "") String keyword,
+    public ApiResult<Page<FieldVO>> list(@RequestParam(defaultValue = "") String keyword,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         return ApiResult.ok(fields.list(keyword, pageable));
     }
 
     @GetMapping("/{id}")
-    public ApiResult<FieldResponse> get(@PathVariable long id) {
+    public ApiResult<FieldVO> get(@PathVariable long id) {
         return ApiResult.ok(fields.get(id));
     }
 
     @PutMapping("/{id}")
-    public ApiResult<FieldResponse> update(@PathVariable long id, @Valid @RequestBody FieldRequest request) {
+    public ApiResult<FieldVO> update(@PathVariable long id, @Valid @RequestBody FieldCreateRequest request) {
         return ApiResult.ok(fields.update(id, request));
     }
 

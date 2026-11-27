@@ -9,7 +9,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
@@ -38,7 +37,6 @@ class FieldPostgisTest {
     @Test
     void measuresAndRecalculatesAreaThroughTheFieldApi() throws Exception {
         ObjectNode request = fieldRequest("东区3号田", "花育25号", 100);
-        request.put("geometry", request.get("geometry").toString());
         String body = http.perform(post("/api/fields").contentType(MediaType.APPLICATION_JSON).content(request.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
@@ -49,7 +47,7 @@ class FieldPostgisTest {
                 .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
         long id = json.readTree(body).path("data").path("id").asLong();
 
-        request.set("geometry", projectedRectangle(200));
+        request.put("geometry", projectedRectangle(200));
         http.perform(put("/api/fields/{id}", id).contentType(MediaType.APPLICATION_JSON).content(request.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.areaMu", closeTo(30.0, 0.1)));
@@ -108,18 +106,58 @@ class FieldPostgisTest {
     }
 
     @Test
-    void rejectsSelfIntersectingPolygons() throws Exception {
-        http.perform(post("/api/fields").contentType(MediaType.APPLICATION_JSON).content("""
-                {
-                  "name": "Invalid field",
-                  "geometry": {
-                    "type": "Polygon",
-                    "coordinates": [[[115,36], [116,37], [115,37], [116,36], [115,36]]]
-                  }
-                }
-                """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(400));
+    void rejectsGeometryObjectsAndValidatesThePolygonInsideAString() throws Exception {
+        ObjectNode request = fieldRequest("田块", "花育25号", 100);
+        request.set("geometry", json.readTree(projectedRectangle(100)));
+        http.perform(post("/api/fields").contentType(MediaType.APPLICATION_JSON).content(request.toString()))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(400));
+
+        request.put("geometry", """
+                {"type":"Polygon","coordinates":[[[115,36],[116,37],[115,37],[116,36],[115,36]]]}
+                """);
+        http.perform(post("/api/fields").contentType(MediaType.APPLICATION_JSON).content(request.toString()))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void keepsStoredFarmEventTypesAndPaginatesNewestFirst() throws Exception {
+        long id = createField("农事测试田", "花育25号", 100);
+        jdbc.update("""
+                INSERT INTO farm_event (field_id, event_type, event_date) VALUES (?, 'sow', DATE '2026-05-02')
+                """, id);
+
+        http.perform(post("/api/fields/{id}/events", id).contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"eventType":"fertilize","eventDate":"2026-06-02","amount":12.5,"unit":"kg"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.eventType").value("fertilize"))
+                .andExpect(jsonPath("$.data.amount").value(12.5));
+        assertThat(jdbc.queryForObject("""
+                SELECT event_type FROM farm_event WHERE field_id = ? AND event_date = DATE '2026-06-02'
+                """, String.class, id)).isEqualTo("fertilize");
+        http.perform(get("/api/fields/{id}/events", id).param("page", "0").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(2))
+                .andExpect(jsonPath("$.data.content[0].eventType").value("fertilize"));
+        http.perform(get("/api/fields/{id}/events", id).param("page", "1").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].eventType").value("sow"));
+    }
+
+    @Test
+    void rejectsUnknownFarmEventTypesAndAmountsWithoutUnits() throws Exception {
+        long id = createField("农事校验田", "花育25号", 100);
+        http.perform(post("/api/fields/{id}/events", id).contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"eventType":"unknown","eventDate":"2026-06-02"}
+                                """))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(400));
+        http.perform(post("/api/fields/{id}/events", id).contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"eventType":"irrigate","eventDate":"2026-06-02","amount":7.5}
+                                """))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(400));
     }
 
     @Test
@@ -148,13 +186,13 @@ class FieldPostgisTest {
 
     private ObjectNode fieldRequest(String name, String variety, int widthMeters) throws Exception {
         ObjectNode request = json.createObjectNode().put("name", name).put("variety", variety);
-        request.set("geometry", projectedRectangle(widthMeters));
+        request.put("geometry", projectedRectangle(widthMeters));
         return request;
     }
 
-    private JsonNode projectedRectangle(int widthMeters) throws Exception {
-        return json.readTree(jdbc.queryForObject("""
+    private String projectedRectangle(int widthMeters) {
+        return jdbc.queryForObject("""
                 SELECT ST_AsGeoJSON(ST_Transform(ST_MakeEnvelope(375000, 4000000, 375000 + ?, 4000100, 32650), 4326))
-                """, String.class, widthMeters));
+                """, String.class, widthMeters);
     }
 }
