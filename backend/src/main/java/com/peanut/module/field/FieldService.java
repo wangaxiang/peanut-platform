@@ -18,6 +18,8 @@ import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBWriter;
 import org.locationtech.jts.io.geojson.GeoJsonReader;
 import org.locationtech.jts.io.geojson.GeoJsonWriter;
+import org.locationtech.jts.operation.valid.IsValidOp;
+import org.locationtech.jts.operation.valid.TopologyValidationError;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -162,33 +164,50 @@ public class FieldService {
             JsonNode geometry = json.readTree(input);
             validateCoordinates(geometry);
             Geometry parsed = new GeoJsonReader().read(geometry.toString());
-            if (!(parsed instanceof Polygon polygon) || polygon.isEmpty() || !polygon.isValid()) {
-                throw invalidPolygon();
+            if (!(parsed instanceof Polygon polygon) || polygon.isEmpty()) {
+                throw invalidPolygon("地块边界至少需要三个不同的拐点。");
+            }
+            TopologyValidationError error = new IsValidOp(polygon).getValidationError();
+            if (error != null) {
+                String message = switch (error.getErrorType()) {
+                    case TopologyValidationError.SELF_INTERSECTION, TopologyValidationError.RING_SELF_INTERSECTION
+                            -> "地块边界线有交叉。请沿边缘依次点击拐点，再完成绘制。";
+                    case TopologyValidationError.TOO_FEW_POINTS -> "地块边界至少需要三个不同的拐点。";
+                    case TopologyValidationError.RING_NOT_CLOSED -> "地块边界没有闭合，请重画后点击「完成绘制」。";
+                    default -> "地块边界形状无效，请沿地块边缘重新绘制。";
+                };
+                throw invalidPolygon(message);
             }
             polygon.setSRID(4326);
             return polygon;
         } catch (JsonProcessingException | ParseException | IllegalArgumentException exception) {
-            throw invalidPolygon();
+            throw invalidPolygon("地块边界的数据格式无效，请返回地图重新绘制。");
         }
     }
 
     private void validateCoordinates(JsonNode geometry) {
         if (geometry == null || geometry.has("crs") || !"Polygon".equals(geometry.path("type").asText())) {
-            throw invalidPolygon();
+            throw invalidPolygon("地块边界必须是 WGS84 多边形，请重新绘制。");
         }
         JsonNode coordinates = geometry.path("coordinates");
         if (!coordinates.isArray() || coordinates.isEmpty()) {
-            throw invalidPolygon();
+            throw invalidPolygon("地块边界至少需要三个不同的拐点。");
         }
         for (JsonNode ring : coordinates) {
             if (!ring.isArray() || ring.size() < 4) {
-                throw invalidPolygon();
+                throw invalidPolygon("地块边界至少需要三个不同的拐点。");
             }
             for (JsonNode point : ring) {
                 if (!point.isArray() || point.size() != 2
                         || !withinBounds(point.get(0), 180) || !withinBounds(point.get(1), 90)) {
-                    throw invalidPolygon();
+                    throw invalidPolygon("地块边界的经纬度无效，请在地图上重新绘制。");
                 }
+            }
+            JsonNode first = ring.get(0);
+            JsonNode last = ring.get(ring.size() - 1);
+            if (first.get(0).doubleValue() != last.get(0).doubleValue()
+                    || first.get(1).doubleValue() != last.get(1).doubleValue()) {
+                throw invalidPolygon("地块边界没有闭合，请重画后点击「完成绘制」。");
             }
         }
     }
@@ -197,8 +216,7 @@ public class FieldService {
         return coordinate.isNumber() && Math.abs(coordinate.doubleValue()) <= limit;
     }
 
-    private static ResponseStatusException invalidPolygon() {
-        return new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                "geometry must be a valid WGS84 GeoJSON Polygon with closed two-dimensional rings");
+    private static ResponseStatusException invalidPolygon(String message) {
+        return new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
     }
 }

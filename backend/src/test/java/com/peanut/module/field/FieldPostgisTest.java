@@ -2,6 +2,7 @@ package com.peanut.module.field;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.closeTo;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -116,7 +117,15 @@ class FieldPostgisTest {
                 {"type":"Polygon","coordinates":[[[115,36],[116,37],[115,37],[116,36],[115,36]]]}
                 """);
         http.perform(post("/api/fields").contentType(MediaType.APPLICATION_JSON).content(request.toString()))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(400));
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.msg", containsString("边界线有交叉")));
+
+        request.put("geometry", """
+                {"type":"Polygon","coordinates":[[[115,36],[116,36],[116,37],[115,37]]]}
+                """);
+        http.perform(post("/api/fields").contentType(MediaType.APPLICATION_JSON).content(request.toString()))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.msg", containsString("边界没有闭合")));
     }
 
     @Test

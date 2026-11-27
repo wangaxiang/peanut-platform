@@ -1,13 +1,19 @@
 <script setup>
 import { reactive, watch } from 'vue'
 
-const props = defineProps({ modelValue: Boolean, field: Object, saving: Boolean, error: String })
-const emit = defineEmits(['update:modelValue', 'submit'])
+const props = defineProps({
+  modelValue: Boolean,
+  field: Object,
+  saving: Boolean,
+  error: String,
+  preserveValues: Boolean,
+})
+const emit = defineEmits(['update:modelValue', 'submit', 'redraw'])
 const soils = ['沙壤土', '壤土', '黏壤土', '砂土']
 const values = reactive({ name: '', soilType: '', variety: '', sowDate: '' })
 
 watch(() => props.modelValue, open => {
-  if (!open) return
+  if (!open || props.preserveValues) return
   for (const key of Object.keys(values)) values[key] = props.field?.[key] ?? ''
 })
 
@@ -43,6 +49,7 @@ function submit() {
         value-format="YYYY-MM-DD" format="YYYY-MM-DD" placeholder="选择播种日期" />
       <el-alert v-if="error" type="error" :title="error" :closable="false" show-icon />
       <div class="dialog-actions">
+        <el-button v-if="!field" :disabled="saving" @click="emit('redraw')">重画边界</el-button>
         <el-button :disabled="saving" @click="emit('update:modelValue', false)">取消</el-button>
         <el-button native-type="submit" type="primary" :loading="saving" :disabled="!values.name.trim()">保存地块</el-button>
       </div>

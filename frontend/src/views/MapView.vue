@@ -27,6 +27,7 @@ const fieldForm = ref(false)
 const editing = ref(null)
 const fieldSaving = ref(false)
 const fieldError = ref('')
+const redrawingBoundary = ref(false)
 const eventForm = ref(false)
 const eventSaving = ref(false)
 const eventError = ref('')
@@ -117,7 +118,10 @@ onMounted(() => {
       fieldForm.value = true
     })
     map.on('draw.modechange', event => {
-      if (event.mode !== 'draw_polygon') drawing.value = false
+      if (event.mode !== 'draw_polygon') {
+        drawing.value = false
+        if (!draft) redrawingBoundary.value = false
+      }
     })
   } catch {
     mapFailure.value = '地图无法初始化，请检查浏览器是否支持 WebGL。'
@@ -188,6 +192,7 @@ function finishDrawing() {
 function cancelDrawing() {
   draw.trash()
   drawing.value = false
+  redrawingBoundary.value = false
 }
 
 function locate(field) {
@@ -247,12 +252,26 @@ function editField() {
   fieldForm.value = true
 }
 
+function discardDraft() {
+  if (!draft) return
+  draw.delete(draft.id)
+  draft = null
+}
+
 function setFieldForm(open) {
+  if (fieldForm.value === open) return
   fieldForm.value = open
-  if (!open && draft) {
-    draw.delete(draft.id)
-    draft = null
+  if (!open) {
+    discardDraft()
+    redrawingBoundary.value = false
   }
+}
+
+function redrawBoundary() {
+  fieldForm.value = false
+  discardDraft()
+  redrawingBoundary.value = true
+  startDrawing()
 }
 
 async function saveField(values) {
@@ -340,7 +359,7 @@ async function saveEvent(values) {
         </div>
         <div v-if="mapFailure" class="map-notice map-error" role="alert">{{ mapFailure }}</div>
         <div v-if="drawing" class="map-notice drawing-notice" role="status">
-          <span>点击地图标记边界，点击起点或按 Enter 完成。</span>
+          <span>沿地块边缘依次点击拐点，避免边界交叉。</span>
           <button type="button" @click="finishDrawing">完成绘制</button>
           <button type="button" @click="cancelDrawing">取消绘制</button>
         </div>
@@ -353,7 +372,7 @@ async function saveEvent(values) {
       </section>
     </main>
     <FieldForm :model-value="fieldForm" :field="editing" :saving="fieldSaving" :error="fieldError"
-      @update:model-value="setFieldForm" @submit="saveField" />
+      :preserve-values="redrawingBoundary" @update:model-value="setFieldForm" @submit="saveField" @redraw="redrawBoundary" />
     <FarmEventForm v-model="eventForm" :saving="eventSaving" :error="eventError" @submit="saveEvent" />
   </div>
 </template>
