@@ -1,6 +1,13 @@
 package com.peanut.module.field;
 
-import com.fasterxml.jackson.annotation.JsonUnwrapped;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
 
-public record FieldResponse(@JsonUnwrapped Field field, String currentGrowthStage, Long daysAfterSow) {
+import com.fasterxml.jackson.databind.JsonNode;
+
+public record FieldResponse(Long id, String name, JsonNode geometry, BigDecimal areaMu, String soilType,
+                            String variety, LocalDate sowDate, String ownerName, String remark,
+                            OffsetDateTime createdAt, OffsetDateTime updatedAt,
+                            String currentGrowthStage, Long daysAfterSow) {
 }

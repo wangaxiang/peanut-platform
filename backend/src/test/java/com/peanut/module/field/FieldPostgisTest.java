@@ -38,6 +38,7 @@ class FieldPostgisTest {
     @Test
     void measuresAndRecalculatesAreaThroughTheFieldApi() throws Exception {
         ObjectNode request = fieldRequest("东区3号田", "花育25号", 100);
+        request.put("geometry", request.get("geometry").toString());
         String body = http.perform(post("/api/fields").contentType(MediaType.APPLICATION_JSON).content(request.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
@@ -75,9 +76,9 @@ class FieldPostgisTest {
                 .andExpect(jsonPath("$.data.content[0].name").value("东区3号田"));
         http.perform(get("/api/fields/stats"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.totalFields").value(3))
+                .andExpect(jsonPath("$.data.totalCount").value(3))
                 .andExpect(jsonPath("$.data.totalAreaMu").value(60.0))
-                .andExpect(jsonPath("$.data.varieties[0].areaPercent").value(50.0));
+                .andExpect(jsonPath("$.data.varietyStats[0].count").value(1));
     }
 
     @Test
@@ -91,7 +92,7 @@ class FieldPostgisTest {
                 .andExpect(jsonPath("$.data.fieldId").value(id));
         http.perform(get("/api/fields/{id}/events", id))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].eventType").value("sow"));
+                .andExpect(jsonPath("$.data.content[0].eventType").value("sow"));
 
         Long taskId = jdbc.queryForObject(
                 "INSERT INTO patrol_task (field_id, task_name) VALUES (?, '测试巡田') RETURNING id", Long.class, id);

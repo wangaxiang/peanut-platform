@@ -1,9 +1,9 @@
 package com.peanut.module.field;
 
-import java.util.List;
-
 import com.peanut.common.ApiResult;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,8 +21,8 @@ public class FarmEventController {
     }
 
     @GetMapping
-    public ApiResult<List<FarmEvent>> list(@PathVariable long id) {
-        return ApiResult.ok(events.list(id));
+    public ApiResult<Page<FarmEvent>> list(@PathVariable long id, Pageable pageable) {
+        return ApiResult.ok(events.list(id, pageable));
     }
 
     @PostMapping

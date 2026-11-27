@@ -244,7 +244,7 @@ GET    /api/fields/{id}             # 地块详情
 PUT    /api/fields/{id}             # 修改地块
 DELETE /api/fields/{id}             # 删除地块
 
-GET    /api/fields/{id}/events      # 农事记录列表
+GET    /api/fields/{id}/events?page=0&size=20      # 农事记录分页，按农事日期倒序
 POST   /api/fields/{id}/events      # 新增农事记录
 
 GET    /api/fields/stats            # 汇总统计（总地块数、总面积、各品种占比）
@@ -280,6 +280,10 @@ GET    /api/fields/stats            # 汇总统计（总地块数、总面积、
   "daysAfterSow": 42
 }
 ```
+
+创建或修改地块时，`geometry` 支持 GeoJSON 对象及其序列化字符串。地块响应中的 `geometry` 始终是 GeoJSON 对象。统计接口的 `data` 为 `{totalCount, totalAreaMu, varietyStats:[{variety,count,areaMu}]}`。
+
+本地后端与数据库启动后，在 `frontend/` 执行 `npm ci` 和 `npm run dev`，浏览器访问 `http://localhost:3000`。在 `frontend/.env.local` 中配置 `VITE_TIANDITU_TOKEN` 并重启前端可切换到天地图影像。未配置时使用 Esri 卫星影像。
 
 ### 2.3 生育期推算算法
 
@@ -1052,7 +1056,7 @@ jwt:
 [x] POST /api/fields 创建地块，面积自动计算
 [x] GET /api/fields 分页+关键词搜索
 [x] 生育期推算随日期变化正确
-[ ] 前端地块圈画（MapLibre draw 插件）+ 提交
+[x] 前端地块圈画（MapLibre draw 插件）+ 提交
 
 模块二：智能巡田
 [ ] EMQX 收到设备注册，drone_sn 写入 patrol_task
