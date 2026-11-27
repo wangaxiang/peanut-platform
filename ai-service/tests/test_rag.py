@@ -1,6 +1,7 @@
 import math
 import os
 from contextlib import closing
+from types import SimpleNamespace
 from unittest import TestCase, skipUnless
 from unittest.mock import patch
 from uuid import uuid4
@@ -25,6 +26,24 @@ class EmbeddingTest(TestCase):
         for values in ([1.0], [0.0] * 1024, [math.nan] * 1024):
             with self.assertRaises(ValueError):
                 main.padded_embedding(values)
+
+
+class AnswerTest(TestCase):
+    def test_length_limit_never_returns_an_unfinished_sowing_date(self):
+        cases = [
+            ("length", "播种前先看地温。建议在5月1", "播种前先看地温。", [1]),
+            ("length", "建议在5月1", "本次回答未能完整生成。请缩小问题范围后再试。", []),
+            ("stop", "建议在5月上旬播种。", "建议在5月上旬播种。", [1]),
+        ]
+        with patch.object(main, "retrieve", return_value=[(1, "播种手册", "了解地温和播期。")]), \
+                patch.object(main, "ollama") as model:
+            for reason, text, expected, sources in cases:
+                with self.subTest(reason=reason, text=text):
+                    model.return_value.chat.return_value = SimpleNamespace(
+                        done_reason=reason, message=SimpleNamespace(content=text))
+                    reply = main.answer(main.QARequest(question="什么时候播种？"))
+                    self.assertEqual(reply.answer, expected)
+                    self.assertEqual(reply.sources, sources)
 
 
 @skipUnless(os.getenv("PEANUT_TEST_RAG") == "true", "Requires a disposable PostGIS/pgvector database")

@@ -912,7 +912,9 @@ public void generateWeeklyReports() {
 
 ### 模块六本地运行与配置
 
-在 `ai-service/` 使用 Python 3.11 执行 `python -m pip install -r requirements.txt`，运行 `ollama pull qwen2:7b`，再执行 `python -m uvicorn rag.main:app --host 127.0.0.1 --port 8001`。BGE-M3 默认从 BAAI 官方仓库加载，也可通过 `BGE_MODEL_PATH` 指向已下载的权重目录。独立运行时 PostgreSQL 连接可配置 `DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_USER`、`DB_PASS`。若在其他主机运行 Ollama，可设置 `OLLAMA_HOST`。AI 服务的 `OLLAMA_CONTEXT_TOKENS` 和 `OLLAMA_ANSWER_TOKENS` 默认为 4096 和 240。本机 4 GiB 显存预览采用 `OLLAMA_CONTEXT_TOKENS=1024`、`OLLAMA_ANSWER_TOKENS=48`、`RAG_WARM_UP=true` 和 `OLLAMA_KEEP_ALIVE=30m`。预热在 AI 服务开始接受请求前加载向量模型和 Qwen，配置的空闲保留时间到期后再次提问可能出现冷加载。
+在 `ai-service/` 使用 Python 3.11 执行 `python -m pip install -r requirements.txt`，运行 `ollama pull qwen2:7b`，再执行 `python -m uvicorn rag.main:app --host 127.0.0.1 --port 8001`。BGE-M3 默认从 BAAI 官方仓库加载，也可通过 `BGE_MODEL_PATH` 指向已下载的权重目录。独立运行时 PostgreSQL 连接可配置 `DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_USER`、`DB_PASS`。若在其他主机运行 Ollama，可设置 `OLLAMA_HOST`。AI 服务的 `OLLAMA_CONTEXT_TOKENS` 和 `OLLAMA_ANSWER_TOKENS` 默认为 4096 和 240。本机 4 GiB 显存预览采用 `OLLAMA_CONTEXT_TOKENS=1024`、`OLLAMA_ANSWER_TOKENS=128`、`RAG_WARM_UP=true` 和 `OLLAMA_KEEP_ALIVE=30m`。预热在 AI 服务开始接受请求前加载向量模型和 Qwen，配置的空闲保留时间到期后再次提问可能出现冷加载。
+
+本机预览原先以 48 token 完成短答测速。为避免播种日期等内容在句中被截断，预览的回答预算提高至 128 token。若模型仍达到输出上限，系统只展示已完整生成的句子。没有完整句子时会提示缩小问题范围。
 
 FastAPI 的 `/embed` 一次性写入知识片段、元数据和向量，Spring Boot 接收请求、校验、转发和统计导入结果。检索直接查询 `knowledge_chunk`，写入与检索使用相同的维度补零规则。保留 ivfflat 索引，当前小知识库使用精确余弦检索。问答页显示引用标题，历史按地块和时间查询。配置 `KNOWLEDGE_ADMIN_TOKEN` 时，管理页会要求输入密钥，只存于当前页面内存。本地预览可留空。
 
