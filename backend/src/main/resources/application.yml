@@ -15,15 +15,30 @@ spring:
     multipart:
       max-file-size: 20MB
       max-request-size: 21MB
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:peanut}
+    password: ${RABBITMQ_PASS:peanut-rabbit-dev}
 
 ai-service:
   base-url: ${AI_SERVICE_URL:http://127.0.0.1:8001}
 
 influxdb:
   url: ${INFLUXDB_URL:http://127.0.0.1:8086}
-  token: ${INFLUXDB_TOKEN:}
+  token: ${INFLUXDB_TOKEN:peanut-token-dev}
   org: ${INFLUXDB_ORG:peanut}
   bucket: ${INFLUXDB_BUCKET:sensors}
+
+mqtt:
+  broker-url: ${MQTT_BROKER_URL:tcp://localhost:1883}
+  client-id: peanut-backend-${random.uuid}
+  qos: 1
+
+jwt:
+  secret: ${JWT_SECRET:change-me-in-production}
+  access-expire-ms: 7200000
+  refresh-expire-ms: 604800000
 
 growth-report:
   cron: ${GROWTH_REPORT_CRON:0 0 2 * * MON}

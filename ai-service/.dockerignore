@@ -1,0 +1,6 @@
+*
+!requirements.txt
+!rag/
+!rag/**
+rag/**/__pycache__/
+!Dockerfile

@@ -977,6 +977,10 @@ export function useRealtimeStatus(fieldId) {
 
 ### 9.1 docker-compose.yml（开发环境）
 
+仓库的 `docker-compose.yml` 在以下约定基础上增加了 Ollama、模型数据卷和健康检查。数据库镜像基于 `postgis/postgis:16-3.4`，加入与现有向量库一致的 pgvector 0.7.4。首次安装、环境变量以及各服务地址见根目录 `README.md`。
+
+2026-11-28 本机切换验收通过。PostgreSQL、InfluxDB、EMQX、RabbitMQ、Ollama、后端、AI 服务和前端均达到健康状态，切换前后地块、知识片段和问答记录数量一致。已验证后端健康检查、FastAPI 文档及浏览器的农田管理和知识库入口。本次启动复用了已验证的本机构建镜像和模型缓存。
+
 ```yaml
 version: '3.9'
 services:
@@ -1070,7 +1074,7 @@ jwt:
 
 ```
 基础设施
-[ ] docker-compose.yml 启动全部服务
+[x] docker-compose.yml 启动全部服务
 [x] V1__init.sql 执行成功，所有表和索引创建完毕
 [x] 后端 Spring Boot 启动，/actuator/health 返回 UP
 

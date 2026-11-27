@@ -9,11 +9,13 @@
   },
   "dependencies": {
     "@mapbox/mapbox-gl-draw": "^1.5.1",
+    "@vueuse/core": "^11.3.0",
     "axios": "^1.13.0",
     "element-plus": "^2.11.0",
     "maplibre-gl": "^4.7.1",
     "pinia": "2.1.7",
-    "vue": "~3.4.38"
+    "vue": "~3.4.38",
+    "vue-router": "^4.5.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.4",

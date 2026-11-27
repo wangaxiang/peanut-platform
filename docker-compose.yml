@@ -1,0 +1,161 @@
+name: peanut-platform
+
+services:
+  postgres:
+    image: peanut-platform-postgis:16-3.4
+    build: ./infra/postgres
+    environment:
+      POSTGRES_DB: peanut
+      POSTGRES_USER: ${DB_USER:-peanut}
+      POSTGRES_PASSWORD: ${DB_PASS:-peanut123}
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
+  influxdb:
+    image: influxdb:2.7
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_USER:-peanut}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_PASSWORD:-peanut-influx-dev}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:-peanut}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:-sensors}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:-peanut-token-dev}
+    ports: ["127.0.0.1:8086:8086"]
+    volumes: ["influx-data:/var/lib/influxdb2", "influx-config:/etc/influxdb2"]
+    healthcheck:
+      test: ["CMD", "influx", "ping", "--host", "http://127.0.0.1:8086"]
+      start_period: 20s
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
+  emqx:
+    image: emqx:5.6
+    ports: ["127.0.0.1:1883:1883", "127.0.0.1:18083:18083"]
+    volumes: ["emqx-data:/opt/emqx/data"]
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+      start_period: 20s
+      interval: 10s
+      timeout: 5s
+      retries: 18
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-peanut}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-peanut-rabbit-dev}
+    ports: ["127.0.0.1:5672:5672", "127.0.0.1:15672:15672"]
+    volumes: ["rabbit-data:/var/lib/rabbitmq"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      start_period: 20s
+      interval: 10s
+      timeout: 6s
+      retries: 18
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes: ["ollama-data:/root/.ollama"]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build: ./backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/peanut
+      DB_USER: ${DB_USER:-peanut}
+      DB_PASS: ${DB_PASS:-peanut123}
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-peanut-token-dev}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-peanut}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-sensors}
+      MQTT_BROKER_URL: tcp://emqx:1883
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-peanut}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-peanut-rabbit-dev}
+      AI_SERVICE_URL: http://ai-service:8001
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      KNOWLEDGE_ADMIN_TOKEN: ${KNOWLEDGE_ADMIN_TOKEN:-}
+      GROWTH_REPORT_DIRECTORY: /var/lib/peanut/reports
+      GROWTH_REPORT_OSS_ENDPOINT: ${GROWTH_REPORT_OSS_ENDPOINT:-}
+      GROWTH_REPORT_OSS_REGION: ${GROWTH_REPORT_OSS_REGION:-}
+      GROWTH_REPORT_OSS_BUCKET: ${GROWTH_REPORT_OSS_BUCKET:-}
+      GROWTH_REPORT_OSS_ACCESS_KEY_ID: ${GROWTH_REPORT_OSS_ACCESS_KEY_ID:-}
+      GROWTH_REPORT_OSS_ACCESS_KEY_SECRET: ${GROWTH_REPORT_OSS_ACCESS_KEY_SECRET:-}
+      GROWTH_REPORT_WEBHOOK_URL: ${GROWTH_REPORT_WEBHOOK_URL:-}
+      GROWTH_REPORT_PUBLIC_BASE_URL: ${GROWTH_REPORT_PUBLIC_BASE_URL:-}
+      GROWTH_REPORT_PUSHPLUS_TOKEN: ${GROWTH_REPORT_PUSHPLUS_TOKEN:-}
+    ports: ["127.0.0.1:8080:8080"]
+    volumes: ["report-data:/var/lib/peanut/reports"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      influxdb: {condition: service_healthy}
+      emqx: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
+      start_period: 25s
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
+  ai-service:
+    build: ./ai-service
+    environment:
+      DB_HOST: postgres
+      DB_USER: ${DB_USER:-peanut}
+      DB_PASS: ${DB_PASS:-peanut123}
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: qwen2:7b
+      OLLAMA_CONTEXT_TOKENS: ${OLLAMA_CONTEXT_TOKENS:-1024}
+      OLLAMA_ANSWER_TOKENS: ${OLLAMA_ANSWER_TOKENS:-128}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+      RAG_WARM_UP: ${RAG_WARM_UP:-false}
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-3}
+      MKL_NUM_THREADS: ${OMP_NUM_THREADS:-3}
+    ports: ["127.0.0.1:8001:8001"]
+    volumes:
+      - bge-cache:/root/.cache/huggingface
+      - ./ai-service/weights:/app/weights
+    depends_on:
+      backend: {condition: service_healthy}
+      ollama: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8001/health', timeout=3)"]
+      start_period: 30s
+      interval: 5s
+      timeout: 4s
+      retries: 55
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_TIANDITU_TOKEN: ${VITE_TIANDITU_TOKEN:-}
+    ports: ["127.0.0.1:3000:80"]
+    depends_on:
+      backend: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 4s
+      retries: 15
+
+volumes:
+  pgdata:
+  influx-data:
+  influx-config:
+  emqx-data:
+  rabbit-data:
+  ollama-data:
+  bge-cache:
+  report-data:
