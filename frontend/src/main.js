@@ -9,10 +9,10 @@ import 'element-plus/dist/index.css'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css'
 import './styles.css'
-import MapView from './views/MapView.vue'
+import App from './App.vue'
 
 const app = createApp({
-  render: () => h(ElConfigProvider, { locale: zhCn }, { default: () => h(MapView) }),
+  render: () => h(ElConfigProvider, { locale: zhCn }, { default: () => h(App) }),
 })
 for (const component of [
   ElAlert, ElButton, ElDatePicker, ElDialog, ElInput, ElInputNumber,

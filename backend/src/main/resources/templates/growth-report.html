@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns="http://www.w3.org/1999/xhtml" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title>花生地块生长报告</title>
+    <style type="text/css">
+        @page { size: A4; margin: 17mm 16mm 18mm; }
+        body { font-family: SimSun, "Noto Sans CJK SC", "WenQuanYi Micro Hei", sans-serif; color: #243a30; font-size: 11pt; margin: 0; }
+        h1 { margin: 5px 0 11px; font-size: 25pt; color: #173f32; }
+        h2 { margin: 23px 0 7px; font-size: 14pt; color: #173f32; }
+        p { margin: 4px 0; line-height: 1.55; }
+        .header { border-top: 6px solid #27634b; border-bottom: 1px solid #d1dfd3; padding: 15px 0 12px; }
+        .subtitle { color: #4f6e5e; }
+        .field-name { font-size: 15pt; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; -fs-table-paginate: paginate; }
+        th { background: #e9f0e8; text-align: left; color: #234a37; }
+        th, td { border: 1px solid #dce6dc; padding: 7px; vertical-align: top; word-wrap: break-word; }
+        tr { page-break-inside: avoid; }
+        .summary td { width: 33%; }
+        .summary span { color: #536c5f; }
+        .summary strong { display: block; margin-top: 4px; }
+        .footer { margin-top: 21px; padding-top: 8px; border-top: 1px solid #d1dfd3; color: #536c5f; font-size: 9pt; }
+    </style>
+</head>
+<body>
+<div class="header">
+    <p class="subtitle">花生种植精准服务平台</p>
+    <h1>地块生长报告</h1>
+    <p class="field-name" th:text="${field.name()}">东区地块</p>
+    <p class="subtitle"><span th:text="${start}">2026-05-01</span> 至 <span th:text="${end}">2026-05-07</span></p>
+</div>
+<h2>种植档案</h2>
+<table class="summary">
+    <tbody><tr>
+        <td><span>品种</span><strong th:text="${field.variety() ?: '未填写'}">品种</strong></td>
+        <td><span>面积（亩）</span><strong th:text="${field.areaMu()}">10.00</strong></td>
+        <td><span>播种日期</span><strong th:text="${field.sowDate() ?: '未填写'}">日期</strong></td>
+    </tr><tr>
+        <td><span>当前生育期</span><strong th:text="${field.currentGrowthStage()}">苗期</strong></td>
+        <td><span>播后天数</span><strong th:text="${field.daysAfterSow() ?: '未填写'}">0</strong></td>
+        <td><span>病虫害预警</span><strong th:text="${alerts}">0</strong></td>
+    </tr></tbody>
+</table>
+<h2>近七天土壤监测</h2>
+<table class="summary"><tbody><tr>
+    <td><span>土壤平均温度</span><strong th:text="${temp}">暂无数据</strong></td>
+    <td><span>土壤平均含水量</span><strong th:text="${moisture}">暂无数据</strong></td>
+</tr></tbody></table>
+<h2>近七天农事记录</h2>
+<p th:if="${events.isEmpty()}">该时段没有农事记录。</p>
+<table th:unless="${events.isEmpty()}">
+    <colgroup><col style="width: 21%" /><col style="width: 15%" /><col style="width: 18%" /><col style="width: 46%" /></colgroup>
+    <thead><tr><th>日期</th><th>农事</th><th>用量</th><th>备注</th></tr></thead>
+    <tbody><tr th:each="event : ${events}">
+        <td th:text="${event.date()}">日期</td><td th:text="${event.type()}">农事</td>
+        <td th:text="${event.amount()}">用量</td><td th:text="${event.remark()}">备注</td>
+    </tr></tbody>
+</table>
+<p class="footer">生成日期 <span th:text="${generated}">日期</span></p>
+</body>
+</html>

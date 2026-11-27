@@ -214,7 +214,7 @@ CREATE TABLE knowledge_chunk (
     id           BIGSERIAL PRIMARY KEY,
     source_title VARCHAR(200),
     content      TEXT NOT NULL,
-    embedding    VECTOR(1536),          -- bge-m3 输出维度
+    embedding    VECTOR(1536),          -- BGE-M3 的 1024 维结果统一补零后写入
     metadata     JSONB,                 -- {category, variety, growth_stage, ...}
     created_at   TIMESTAMPTZ DEFAULT NOW()
 );
@@ -782,11 +782,15 @@ public void checkAndTrigger() {
 ### 7.1 API 定义
 
 ```
-POST   /api/knowledge/chunks            # 录入知识片段（管理员）
+GET    /api/knowledge/chunks?page=      # 管理员分页查看知识片段
+POST   /api/knowledge/chunks            # 录入一条或多条知识片段（管理员）
+POST   /api/knowledge/chunks/import     # 导入 UTF-8 CSV（管理员）
+POST   /api/knowledge/chunks/import/file # 导入 PDF、DOCX、TXT、MD、CSV 或 ZIP（管理员）
 POST   /api/knowledge/qa                # 智能问答
 GET    /api/knowledge/qa/history        # 问答历史（?fieldId&page）
 
 GET    /api/reports/growth/{fieldId}    # 生成生长报告（返回 PDF URL）
+GET    /api/reports/growth/{fieldId}/pdf?date=YYYY-MM-DD # 查看已生成的 PDF
 ```
 
 ### 7.2 RAG 问答服务（Python FastAPI）
@@ -899,10 +903,30 @@ public void generateWeeklyReports() {
 
 ### 7.5 验收标准
 
-- [ ] 问答接口平均响应时间 < 5 秒（本地 7B 模型）
-- [ ] 答案末尾显示引用来源（知识片段标题）
-- [ ] 每周一自动推送 PDF 生长报告至绑定手机
-- [ ] 知识库支持批量导入（CSV 格式：sourceTitle, content, category, variety, growthStage）
+- [x] 问答接口平均响应时间 < 5 秒（本地 7B 模型，服务预热后）
+- [x] 答案末尾显示引用来源（知识片段标题）
+- [x] 每周一自动推送 PDF 生长报告至绑定手机（本机单接收人配置）
+- [x] 知识库支持批量导入（CSV 格式：sourceTitle, content, category, variety, growthStage）
+
+本机真实 BGE-M3、PostgreSQL/pgvector 和 GPU 加速的 Qwen2 7B 已验证资料录入、问答、引用标题、地块关联和历史。旧配置含冷加载的首问为 37.60 秒，预热后五个问题平均 5.51 秒。启用服务启动时预热，并将本机回答预算设为 48 token 后，经 Spring Boot 问答接口测了八个不同问题（含一条带上下文的追问），平均 2.81 秒，服务就绪后的首问 3.99 秒，最慢 4.62 秒。测试同时检查了答案要点、引用来源和历史记录。模型在空闲卸载或服务重启时仍需加载。2026-11-27 通过定时任务验证真实 OSS 上传和 PushPlus 微信一对一推送，接收人在手机确认收到通知并打开了测试 PDF。常规预览启用了每周一 02:00（北京时间）的任务，运行该任务时后端须保持启动。
+
+### 模块六本地运行与配置
+
+在 `ai-service/` 使用 Python 3.11 执行 `python -m pip install -r requirements.txt`，运行 `ollama pull qwen2:7b`，再执行 `python -m uvicorn rag.main:app --host 127.0.0.1 --port 8001`。BGE-M3 默认从 BAAI 官方仓库加载，也可通过 `BGE_MODEL_PATH` 指向已下载的权重目录。独立运行时 PostgreSQL 连接可配置 `DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_USER`、`DB_PASS`。若在其他主机运行 Ollama，可设置 `OLLAMA_HOST`。AI 服务的 `OLLAMA_CONTEXT_TOKENS` 和 `OLLAMA_ANSWER_TOKENS` 默认为 4096 和 240。本机 4 GiB 显存预览采用 `OLLAMA_CONTEXT_TOKENS=1024`、`OLLAMA_ANSWER_TOKENS=48`、`RAG_WARM_UP=true` 和 `OLLAMA_KEEP_ALIVE=30m`。预热在 AI 服务开始接受请求前加载向量模型和 Qwen，配置的空闲保留时间到期后再次提问可能出现冷加载。
+
+FastAPI 的 `/embed` 一次性写入知识片段、元数据和向量，Spring Boot 接收请求、校验、转发和统计导入结果。检索直接查询 `knowledge_chunk`，写入与检索使用相同的维度补零规则。保留 ivfflat 索引，当前小知识库使用精确余弦检索。问答页显示引用标题，历史按地块和时间查询。配置 `KNOWLEDGE_ADMIN_TOKEN` 时，管理页会要求输入密钥，只存于当前页面内存。本地预览可留空。
+
+「知识库管理 → 导入文件」可选择单个 PDF、DOCX、TXT、Markdown、CSV 或 ZIP，单次上传最多 20 MiB。ZIP 内可以放支持的资料文件与子目录，支持最多 100 个条目，解压后的总量最多 40 MiB。系统提取正文、保留来源文件名并按段生成向量，单次最多 100 个知识片段。扫描件需要先做 OCR，密码 PDF 需先解锁。入库结果展示每个文件的写入数量或失败原因。
+
+定时任务默认按上海时区每周一 02:00 为生长中的地块生成近七天报告。未配置 OSS 时，PDF 写入本地目录，可通过知识问答页选择地块获取。Linux 部署需安装可嵌入的中文字体或设置 `GROWTH_REPORT_FONT`。
+
+1. 在阿里云 OSS 控制台创建私有 Bucket，记录 Bucket 名称、地域 ID 和外网 Endpoint。给专用 RAM 身份授予对该 Bucket 下 `reports/*` 的 `oss:PutObject` 和 `oss:GetObject` 权限。[阿里云 OSS 控制台入门](https://help.aliyun.com/zh/oss/user-guide/get-started-with-oss/)
+2. 在启动 **后端** 的进程环境中配置 `GROWTH_REPORT_OSS_BUCKET`、`GROWTH_REPORT_OSS_REGION`、`GROWTH_REPORT_OSS_ENDPOINT`、`GROWTH_REPORT_OSS_ACCESS_KEY_ID`、`GROWTH_REPORT_OSS_ACCESS_KEY_SECRET`。配置成功后使用 V4 签名上传，通知中的 OSS 下载链接有效期为 7 天。[阿里云预签名下载文档](https://help.aliyun.com/zh/oss/developer-reference/download-using-a-presigned-url)
+3. 将支持报告通知的服务地址设置为 `GROWTH_REPORT_WEBHOOK_URL`。这个地址接收 JSON `POST`，字段是 `fieldId`、ISO 日期 `reportDate` 和 `pdfUrl`。通知服务根据 `fieldId` 找到绑定手机，确认接收后返回 2xx，并可用 `Idempotency-Key` 对重复请求去重。已有可从手机访问的后端域名时，也可配置 `GROWTH_REPORT_PUBLIC_BASE_URL`，使通知使用平台报告链接。
+
+单人预览可使用 PushPlus 微信一对一通知，配置 `GROWTH_REPORT_PUSHPLUS_TOKEN`（本机属性名 `growth-report.pushplus-token`）。这个配置将该实例周报发给令牌关联的微信，适用于单一接收人。PushPlus 会接收到可下载报告的临时链接。真实验收以手机收到通知并能打开测试周报为准。[PushPlus 一对一消息](https://dev.pushplus.plus/doc/function/one.html)
+
+执行 `python -m unittest discover -s tests -v` 运行向量测试，设置 `PEANUT_TEST_RAG=true` 并连接临时数据库会额外验证真实 pgvector 写入和排序。Java 集成测试与模块一共用 `PEANUT_TEST_POSTGIS=true` 开关。
 
 ---
 
@@ -1075,9 +1099,9 @@ jwt:
 [ ] 传感器自动触发灌溉（联调测试）
 
 模块六：知识库
-[ ] pgvector 索引创建 + embedding 写入测试
-[ ] RAG 问答接口返回答案 + 引用来源
-[ ] 周报定时任务触发 + PDF 生成
+[x] pgvector 索引创建 + embedding 写入测试
+[x] RAG 问答接口返回答案 + 引用来源
+[x] 周报定时任务触发 + PDF 生成
 
 集成测试
 [ ] 完整业务流：创建地块 → 触发巡田 → NDVI 生成 → 病虫害检测 → 处方图生成 → 灌溉执行
