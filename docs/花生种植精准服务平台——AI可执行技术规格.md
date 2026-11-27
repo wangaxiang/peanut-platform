@@ -130,7 +130,7 @@ CREATE TABLE farm_event (
 
 CREATE TABLE patrol_task (
     id           BIGSERIAL PRIMARY KEY,
-    field_id     BIGINT NOT NULL REFERENCES field(id),
+    field_id     BIGINT NOT NULL REFERENCES field(id) ON DELETE CASCADE,
     task_name    VARCHAR(100),
     schedule_cron VARCHAR(50),          -- 定时表达式，如 0 6 * * 1,4
     drone_sn     VARCHAR(64),           -- 机库/无人机序列号
@@ -141,8 +141,8 @@ CREATE TABLE patrol_task (
 
 CREATE TABLE patrol_flight (
     id           BIGSERIAL PRIMARY KEY,
-    task_id      BIGINT NOT NULL REFERENCES patrol_task(id),
-    field_id     BIGINT NOT NULL REFERENCES field(id),
+    task_id      BIGINT NOT NULL REFERENCES patrol_task(id) ON DELETE CASCADE,
+    field_id     BIGINT NOT NULL REFERENCES field(id) ON DELETE CASCADE,
     start_time   TIMESTAMPTZ,
     end_time     TIMESTAMPTZ,
     status       VARCHAR(20) DEFAULT 'pending',  -- pending/flying/processing/done/failed
@@ -156,7 +156,7 @@ CREATE TABLE patrol_flight (
 
 CREATE TABLE pest_detection (
     id           BIGSERIAL PRIMARY KEY,
-    flight_id    BIGINT REFERENCES patrol_flight(id),
+    flight_id    BIGINT REFERENCES patrol_flight(id) ON DELETE SET NULL,
     field_id     BIGINT NOT NULL REFERENCES field(id),
     source       VARCHAR(20) NOT NULL,  -- flight/manual_upload
     image_url    TEXT NOT NULL,
@@ -171,7 +171,7 @@ CREATE INDEX idx_pest_field ON pest_detection(field_id);
 CREATE TABLE prescription_map (
     id           BIGSERIAL PRIMARY KEY,
     field_id     BIGINT NOT NULL REFERENCES field(id),
-    flight_id    BIGINT REFERENCES patrol_flight(id),
+    flight_id    BIGINT REFERENCES patrol_flight(id) ON DELETE SET NULL,
     map_type     VARCHAR(20) NOT NULL,  -- fertilize/spray
     zones        JSONB NOT NULL,        -- 分区 GeoJSON FeatureCollection，每个 Feature 含 amount 属性
     status       VARCHAR(20) DEFAULT 'draft',  -- draft/confirmed/executed
@@ -306,10 +306,12 @@ public String calcGrowthStage(LocalDate sowDate) {
 
 ### 2.5 验收标准
 
-- [ ] `POST /api/fields` 传入 GeoJSON Polygon，响应 `areaMu` 精度 ±0.1 亩
-- [ ] `GET /api/fields` 支持 `keyword` 模糊匹配地块名、品种名
-- [ ] `currentGrowthStage` 随系统日期动态变化，无需手动更新
-- [ ] 删除地块时，级联删除关联的 farm_event、patrol_task（ON DELETE CASCADE 已在 DDL 配置）
+- [x] `POST /api/fields` 传入 GeoJSON Polygon，响应 `areaMu` 精度 ±0.1 亩
+- [x] `GET /api/fields` 支持 `keyword` 模糊匹配地块名、品种名
+- [x] `currentGrowthStage` 随系统日期动态变化，无需手动更新
+- [x] 删除地块时，级联删除关联的 farm_event、patrol_task（ON DELETE CASCADE 已在 DDL 配置）
+
+使用 Java 21 在 `backend/` 执行 `mvn test` 可运行生育期单元测试。验证 PostGIS 面积及 API 时，准备一个安装了 PostGIS 和 pgvector 的临时 PostgreSQL 16 数据库，设置 `SPRING_DATASOURCE_URL`、`DB_USER`、`DB_PASS` 和 `PEANUT_TEST_POSTGIS=true`，再执行同一命令。
 
 ---
 
@@ -1043,13 +1045,13 @@ jwt:
 ```
 基础设施
 [ ] docker-compose.yml 启动全部服务
-[ ] V1__init.sql 执行成功，所有表和索引创建完毕
-[ ] 后端 Spring Boot 启动，/actuator/health 返回 UP
+[x] V1__init.sql 执行成功，所有表和索引创建完毕
+[x] 后端 Spring Boot 启动，/actuator/health 返回 UP
 
 模块一：农田管理
-[ ] POST /api/fields 创建地块，面积自动计算
-[ ] GET /api/fields 分页+关键词搜索
-[ ] 生育期推算随日期变化正确
+[x] POST /api/fields 创建地块，面积自动计算
+[x] GET /api/fields 分页+关键词搜索
+[x] 生育期推算随日期变化正确
 [ ] 前端地块圈画（MapLibre draw 插件）+ 提交
 
 模块二：智能巡田
