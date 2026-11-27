@@ -309,6 +309,7 @@ public String calcGrowthStage(LocalDate sowDate) {
 - [x] `GET /api/fields` 支持 `keyword` 模糊匹配地块名、品种名
 - [x] `currentGrowthStage` 随系统日期动态变化，无需手动更新
 - [x] 删除地块时，级联删除关联的 farm_event、patrol_task（ON DELETE CASCADE 已在 DDL 配置）
+- [x] 在本地浏览器加载天地图真实影像，并验证圈地保存、地块高亮与详情、农事记录、生育期更新和面积统计。
 
 使用 Java 21 在 `backend/` 执行 `mvn test` 可运行生育期单元测试。验证 PostGIS 面积及 API 时，准备一个安装了 PostGIS 和 pgvector 的临时 PostgreSQL 16 数据库，设置 `SPRING_DATASOURCE_URL`、`DB_USER`、`DB_PASS` 和 `PEANUT_TEST_POSTGIS=true`，再执行同一命令。
 
