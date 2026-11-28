@@ -13,7 +13,9 @@ const editing = ref(false)
 const saving = ref(false)
 const formError = ref('')
 const busy = reactive(new Set())
-const emptyForm = () => ({ fieldId: undefined, taskName: '', scheduleCron: '', droneSn: '', route: '' })
+const emptyForm = () => ({
+  fieldId: undefined, taskName: '', scheduleMode: 'date', scheduledAt: '', scheduleCron: '', droneSn: '', route: '',
+})
 const form = reactive(emptyForm())
 let request = 0
 
@@ -37,11 +39,31 @@ function openForm() {
   editing.value = true
 }
 
+function disablePastDate(date) {
+  return date.getTime() < new Date().setHours(0, 0, 0, 0)
+}
+
 async function save() {
   formError.value = ''
-  if (!form.fieldId || !form.taskName.trim() || !form.scheduleCron.trim() || !form.droneSn.trim()) {
-    formError.value = '请填写地块、任务名称、cron 和设备序列号'
+  if (!form.fieldId || !form.taskName.trim() || !form.droneSn.trim()) {
+    formError.value = '请填写地块、任务名称和设备序列号'
     return
+  }
+  let schedule
+  if (form.scheduleMode === 'date') {
+    const date = new Date(form.scheduledAt)
+    if (!form.scheduledAt || Number.isNaN(date.getTime()) || date.getTime() <= Date.now()) {
+      formError.value = '请选择将来的执行日期和时间'
+      return
+    }
+    schedule = { scheduledAt: date.toISOString() }
+  } else {
+    const cron = form.scheduleCron.trim()
+    if (cron.split(/\s+/).length !== 5) {
+      formError.value = '请填写五段 cron，例如 0 6 * * *'
+      return
+    }
+    schedule = { scheduleCron: cron }
   }
   let routeGeojson
   try {
@@ -53,7 +75,7 @@ async function save() {
   saving.value = true
   try {
     await createTask({ fieldId: form.fieldId, taskName: form.taskName.trim(),
-      scheduleCron: form.scheduleCron.trim(), droneSn: form.droneSn.trim(), routeGeojson })
+      ...schedule, droneSn: form.droneSn.trim(), routeGeojson })
     editing.value = false
     ElMessage.success('已创建巡田任务')
     const resetFilter = fieldId.value && fieldId.value !== form.fieldId
@@ -121,7 +143,11 @@ watch([fieldId, page], refresh, { immediate: true })
           <tbody>
             <tr v-for="task in result.content" :key="task.id">
               <td><strong>{{ task.taskName || '巡田任务' }}</strong><small>{{ formatTime(task.createdAt) }} 创建</small></td>
-              <td>{{ task.fieldName }}</td><td>{{ task.droneSn }}</td><td><code>{{ task.scheduleCron }}</code></td>
+              <td>{{ task.fieldName }}</td><td>{{ task.droneSn }}</td>
+              <td>
+                <template v-if="task.scheduledAt">{{ formatTime(task.scheduledAt) }}<small>单次执行</small></template>
+                <code v-else>{{ task.scheduleCron || '—' }}</code>
+              </td>
               <td><el-switch :model-value="task.status === 'active'" :disabled="busy.has(task.id)"
                 :aria-label="`启用 ${task.taskName}`" @change="changeStatus(task, $event)" /></td>
               <td><el-button size="small" :disabled="task.status !== 'active' || busy.has(task.id)"
@@ -137,13 +163,30 @@ watch([fieldId, page], refresh, { immediate: true })
           :total="result.totalElements" layout="prev, pager, next" small />
       </div>
     </section>
-    <el-dialog v-model="editing" title="新建巡田任务" width="min(560px, 94vw)" :before-close="done => { if (!saving) done() }">
+    <el-dialog v-model="editing" title="新建巡田任务" width="min(560px, 94vw)" top="6vh"
+      class="patrol-task-dialog" :before-close="done => { if (!saving) done() }">
       <form class="dialog-form" @submit.prevent="save">
         <label>地块</label><PatrolFieldSelect v-if="editing" v-model="form.fieldId" label="选择地块" :clearable="false" />
         <label for="patrol-name">任务名称</label><el-input id="patrol-name" v-model="form.taskName" maxlength="100" />
         <label for="patrol-drone">机库或无人机序列号</label><el-input id="patrol-drone" v-model="form.droneSn" maxlength="64" />
-        <label for="patrol-cron">执行计划</label><el-input id="patrol-cron" v-model="form.scheduleCron" placeholder="0 6 * * 1,4" maxlength="50" />
-        <small>按分、时、日、月、星期填写。示例为每周一和周四 06:00，平台默认为北京时间。</small>
+        <fieldset class="patrol-schedule">
+          <legend>执行计划</legend>
+          <div class="patrol-schedule-options">
+            <label><input v-model="form.scheduleMode" type="radio" name="patrol-schedule" value="date">选择日期和时间</label>
+            <label><input v-model="form.scheduleMode" type="radio" name="patrol-schedule" value="cron">手动填写 cron</label>
+          </div>
+          <template v-if="form.scheduleMode === 'date'">
+            <el-date-picker v-if="editing" id="patrol-scheduled-at" v-model="form.scheduledAt" type="datetime"
+              aria-label="执行日期和时间" placeholder="选择或输入执行日期和时间" :disabled-date="disablePastDate"
+              format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DDTHH:mm" />
+            <small>按当前设备时区，选定时间只执行一次。</small>
+          </template>
+          <template v-else>
+            <el-input id="patrol-cron" v-model="form.scheduleCron" aria-label="五段 cron"
+              placeholder="例如 0 6 * * 1,4" maxlength="50" />
+            <small>按分、时、日、月、星期填写。示例为每周一和周四 06:00，平台默认为北京时间。</small>
+          </template>
+        </fieldset>
         <label for="patrol-route">航线 GeoJSON</label>
         <el-input id="patrol-route" v-model="form.route" type="textarea" :rows="5" placeholder='{"type":"FeatureCollection","features":[…]}' />
         <small>粘贴已规划的航线，至少包含两个 Point 航点。坐标顺序为经度、纬度。</small>

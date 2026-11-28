@@ -332,7 +332,7 @@ GET    /api/iot/sensors?fieldId=            # 传感器实时数据
 GET    /api/iot/sensors/{sn}/history        # 传感器历史数据（?start&end&interval）
 ```
 
-创建任务接收 `{fieldId, taskName, scheduleCron, droneSn, routeGeojson}`，航线是至少含两个 Point 航点的 GeoJSON FeatureCollection。更新状态接收 `{"status":"active"}` 或 `{"status":"paused"}`。手动飞行先调用 `POST /api/patrol/tasks/{id}/flights` 建立待下发记录，再调用对应的 `/trigger`。同一任务在同一分钟只生成一条定时记录，当前分钟无法下发的定时记录超时后标记为失败。
+创建任务接收 `{fieldId, taskName, droneSn, routeGeojson}`，航线是至少含两个 Point 航点的 GeoJSON FeatureCollection。执行计划通过 `scheduleCron`（五段 cron，周期执行）或 `scheduledAt`（精确到分钟的 ISO 8601 时间戳，单次执行）二选一传入。更新状态接收 `{"status":"active"}` 或 `{"status":"paused"}`。手动飞行先调用 `POST /api/patrol/tasks/{id}/flights` 建立待下发记录，再调用对应的 `/trigger`。同一任务在同一分钟只生成一条定时记录，当前分钟无法下发的定时记录超时后标记为失败。
 
 飞行记录页支持 `POST /api/patrol/flights/{id}/image`（multipart 字段 `file`）在结束上报前后上传多光谱影像。设备也可在完成上报中传入共享目录内的 `rawImagePath`。NDVI 成功后，详情返回 `ndviImagePath`、`ndviStats` 和 `ndviTileUrl`，后者指向 TileJSON。
 

@@ -33,13 +33,7 @@ class PatrolService {
     }
 
     PatrolTask create(CreateTask input) {
-        String cron;
-        try {
-            PatrolCron.parse(input.scheduleCron());
-            cron = String.join(" ", input.scheduleCron().strip().split("\\s+"));
-        } catch (IllegalArgumentException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "cron 无效，请输入分、时、日、月、星期");
-        }
+        String cron = validateSchedule(input.scheduleCron(), input.scheduledAt());
         validateRoute(input.routeGeojson());
         if (!repository.fieldExists(input.fieldId())) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "地块不存在");
@@ -85,7 +79,11 @@ class PatrolService {
     void schedule() {
         ZonedDateTime minute = ZonedDateTime.now(zone).truncatedTo(ChronoUnit.MINUTES);
         Instant slot = minute.toInstant();
-        for (PatrolTask task : repository.activeTasks()) {
+        for (PatrolTask task : repository.activeTasks(slot)) {
+            if (slot.equals(task.scheduledAt())) {
+                repository.insertFlight(task.id(), slot);
+                continue;
+            }
             if (task.scheduleCron() == null || (task.createdAt() != null && task.createdAt().isAfter(slot))) {
                 continue;
             }
@@ -116,6 +114,25 @@ class PatrolService {
         return repository.task(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "巡田任务不存在"));
     }
 
+    private static String validateSchedule(String cron, Instant scheduledAt) {
+        boolean hasCron = cron != null && !cron.isBlank();
+        if (hasCron == (scheduledAt != null)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择一个执行日期和时间，或填写五段 cron");
+        }
+        if (scheduledAt != null) {
+            if (!scheduledAt.equals(scheduledAt.truncatedTo(ChronoUnit.MINUTES)) || !scheduledAt.isAfter(Instant.now())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择将来的执行时间，精确到分钟");
+            }
+            return null;
+        }
+        try {
+            PatrolCron.parse(cron);
+            return String.join(" ", cron.strip().split("\\s+"));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "cron 无效，请按分、时、日、月、星期填写，例如 0 6 * * *");
+        }
+    }
+
     private static void validateRoute(JsonNode route) {
         JsonNode features = route.path("features");
         if (!"FeatureCollection".equals(route.path("type").asText()) || !features.isArray()
@@ -140,6 +157,6 @@ class PatrolService {
     }
 
     record CreateTask(@NotNull @Positive Long fieldId, @NotBlank @Size(max = 100) String taskName,
-            @NotBlank @Size(max = 50) String scheduleCron,
+            @Size(max = 50) String scheduleCron, Instant scheduledAt,
             @NotBlank @Pattern(regexp = "[A-Za-z0-9_-]{1,64}") String droneSn, @NotNull JsonNode routeGeojson) {}
 }

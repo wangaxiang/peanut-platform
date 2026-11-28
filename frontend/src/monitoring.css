@@ -23,6 +23,12 @@
 .monitor-error { color: #963b38; padding: 9px 12px; background: #fff1ec; border-radius: 6px; font-size: .88rem; }
 .monitor-panel > .monitor-error { margin: 0 16px 10px; }
 .dialog-form small { color: var(--muted); line-height: 1.5; }
+.patrol-task-dialog .el-dialog__body { max-height: calc(100dvh - 135px); overflow-y: auto; }
+.patrol-schedule { display: grid; min-width: 0; gap: 8px; border: 0; padding: 0; margin: 5px 0 0; }
+.patrol-schedule legend { padding: 0; color: #304637; font-size: .88rem; font-weight: 650; }
+.patrol-schedule-options { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.patrol-schedule-options label { display: inline-flex; align-items: center; gap: 5px; font-weight: 500; cursor: pointer; }
+.patrol-schedule-options input { margin: 0; accent-color: var(--forest); }
 .flight-tag { display: inline-block; white-space: nowrap; padding: 4px 8px; border-radius: 5px; background: #edf0ed; color: #556357; font-size: .77rem; font-weight: 700; }
 .flight-tag.flying { color: #1b5277; background: #e2f1fb; }
 .flight-tag.processing { color: #825018; background: #fbecd6; }

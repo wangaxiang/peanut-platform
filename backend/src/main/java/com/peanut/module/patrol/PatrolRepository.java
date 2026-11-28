@@ -72,10 +72,11 @@ class PatrolRepository {
 
     long insertTask(PatrolService.CreateTask input, String cron) {
         return jdbc.sql("""
-                INSERT INTO patrol_task(field_id, task_name, schedule_cron, drone_sn, route_geojson)
-                VALUES (:field, :name, :cron, :sn, CAST(:route AS jsonb)) RETURNING id
+                INSERT INTO patrol_task(field_id, task_name, schedule_cron, scheduled_at, drone_sn, route_geojson)
+                VALUES (:field, :name, :cron, :scheduledAt, :sn, CAST(:route AS jsonb)) RETURNING id
                 """).param("field", input.fieldId()).param("name", input.taskName().strip())
-                .param("cron", cron).param("sn", input.droneSn()).param("route", input.routeGeojson().toString())
+                .param("cron", cron).param("scheduledAt", timestamp(input.scheduledAt()))
+                .param("sn", input.droneSn()).param("route", input.routeGeojson().toString())
                 .query(Long.class).single();
     }
 
@@ -84,9 +85,10 @@ class PatrolRepository {
                 .param("id", id).param("status", status).update() == 1;
     }
 
-    List<PatrolTask> activeTasks() {
-        return jdbc.sql("SELECT t.*, f.name AS field_name " + TASKS + " AND t.status = 'active'")
-                .query(this::taskRow).list();
+    List<PatrolTask> activeTasks(Instant slot) {
+        return jdbc.sql("SELECT t.*, f.name AS field_name " + TASKS
+                + " AND t.status = 'active' AND (t.scheduled_at IS NULL OR t.scheduled_at = :slot)")
+                .param("slot", timestamp(slot)).query(this::taskRow).list();
     }
 
     List<String> droneSerials() {
@@ -177,7 +179,7 @@ class PatrolRepository {
 
     private PatrolTask taskRow(ResultSet rs, int row) throws SQLException {
         return new PatrolTask(rs.getLong("id"), rs.getLong("field_id"), rs.getString("field_name"),
-                rs.getString("task_name"), rs.getString("schedule_cron"), rs.getString("drone_sn"),
+                rs.getString("task_name"), rs.getString("schedule_cron"), time(rs, "scheduled_at"), rs.getString("drone_sn"),
                 readJson(rs, "route_geojson"), rs.getString("status"), time(rs, "created_at"));
     }
 
