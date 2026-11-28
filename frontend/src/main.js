@@ -9,6 +9,7 @@ import 'element-plus/dist/index.css'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css'
 import './styles.css'
+import './monitoring.css'
 import App from './App.vue'
 
 const app = createApp({

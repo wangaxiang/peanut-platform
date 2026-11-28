@@ -1,0 +1,69 @@
+.module-tabs { overflow-x: auto; }
+.module-tabs a { flex-shrink: 0; white-space: nowrap; }
+.monitor-page { width: min(1280px, 100%); min-height: calc(100vh - 48px); margin: 0 auto; padding: 36px 30px; color: var(--pine); }
+.monitor-header { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin-bottom: 24px; }
+.monitor-header h1 { margin: 0 0 7px; font-size: clamp(1.55rem, 3vw, 2.05rem); }
+.monitor-header p, .monitor-muted { color: var(--muted); font-size: .89rem; }
+.monitor-page a { color: var(--forest); font-weight: 650; text-underline-offset: 4px; }
+.monitor-panel { min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: #fff; overflow: hidden; }
+.monitor-panel h2 { font-size: 1.08rem; color: var(--pine); }
+.monitor-toolbar { display: flex; align-items: center; gap: 12px; padding: 16px 20px; }
+.monitor-toolbar h2 { margin-right: auto; }
+.monitor-toolbar .el-select { width: 170px; }
+.monitor-table-wrap { overflow-x: auto; }
+.monitor-table { width: 100%; text-align: left; border-collapse: collapse; font-size: .89rem; }
+.monitor-table th, .monitor-table td { padding: 13px 16px; border-top: 1px solid var(--line); }
+.monitor-table th:first-child, .monitor-table td:first-child { padding-left: 20px; }
+.monitor-table th { background: #f0f5ef; color: #456153; font-weight: 650; white-space: nowrap; }
+.monitor-table tbody tr:hover { background: #f8fbf7; }
+.monitor-table small { display: block; margin-top: 5px; color: var(--muted); font-size: .76rem; }
+.monitor-table code { background: #edf3ec; padding: 4px 7px; border-radius: 5px; white-space: nowrap; }
+.monitor-table .monitor-empty, .monitor-empty { padding: 36px 16px; text-align: center; color: var(--muted); }
+.monitor-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--line); font-size: .86rem; }
+.monitor-error { color: #963b38; padding: 9px 12px; background: #fff1ec; border-radius: 6px; font-size: .88rem; }
+.monitor-panel > .monitor-error { margin: 0 16px 10px; }
+.dialog-form small { color: var(--muted); line-height: 1.5; }
+.flight-tag { display: inline-block; white-space: nowrap; padding: 4px 8px; border-radius: 5px; background: #edf0ed; color: #556357; font-size: .77rem; font-weight: 700; }
+.flight-tag.flying { color: #1b5277; background: #e2f1fb; }
+.flight-tag.processing { color: #825018; background: #fbecd6; }
+.flight-tag.done { color: #275d36; background: #dcefdc; }
+.flight-tag.failed { color: #963b38; background: #fae3e0; }
+.monitor-upload { display: inline-flex; position: relative; align-items: center; white-space: nowrap; padding: 5px 8px; color: var(--forest); background: #edf5ed; border-radius: 6px; cursor: pointer; }
+.monitor-upload:focus-within { outline: 2px solid #42a36d; }
+.monitor-upload.disabled { opacity: .6; }
+.monitor-upload input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: inherit; }
+.ndvi-layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 16px; }
+.ndvi-map { min-height: clamp(380px, 64vh, 700px); border-radius: 12px; background: #425747; overflow: hidden; }
+.ndvi-stats { padding: 20px; align-self: start; }
+.ndvi-numbers { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 18px 0 22px; }
+.ndvi-numbers div, .sensor-metrics div { background: #eef4ee; padding: 10px 12px; border-radius: 8px; }
+.ndvi-numbers dt, .sensor-metrics dt { font-size: .81rem; color: var(--muted); }
+.ndvi-numbers dd, .sensor-metrics dd { margin: 5px 0 0; font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ndvi-grade { margin: 13px 0; }
+.ndvi-grade div, .ndvi-opacity { display: flex; justify-content: space-between; font-size: .85rem; }
+.ndvi-grade small { margin-left: 4px; color: var(--muted); }
+.ndvi-grade progress { appearance: none; display: block; width: 100%; height: 9px; margin-top: 7px; border: none; border-radius: 8px; overflow: hidden; background: #edf0ec; color: var(--grade-color); }
+.ndvi-grade progress::-webkit-progress-bar { background: #edf0ec; }
+.ndvi-grade progress::-webkit-progress-value { background: var(--grade-color); }
+.ndvi-grade progress::-moz-progress-bar { background: var(--grade-color); }
+.ndvi-opacity { display: grid; grid-template-columns: 1fr auto; gap: 7px; padding: 16px 0; }
+.ndvi-opacity input { grid-column: 1 / -1; width: 100%; accent-color: var(--forest); }
+.sensor-time { padding: 0 20px; }
+.sensor-metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 14px 20px 20px; }
+.sensor-metrics dd small { font-size: .78rem; font-weight: 400; color: var(--muted); }
+.sensor-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+.sensor-charts section { padding: 17px; }
+.soil-chart { position: relative; height: 300px; margin-top: 10px; }
+@media (max-width: 850px) {
+  .monitor-page { padding: 24px 16px; }
+  .ndvi-layout, .sensor-charts { grid-template-columns: 1fr; }
+  .sensor-filters { flex-wrap: wrap; }
+  .sensor-filters h2 { flex-basis: 100%; }
+}
+@media (max-width: 550px) {
+  .monitor-header { align-items: flex-start; }
+  .monitor-header p { font-size: .82rem; }
+  .monitor-toolbar .el-select { width: 140px; }
+  .sensor-metrics { grid-template-columns: repeat(2, 1fr); }
+  .monitor-table td { min-width: 100px; }
+}

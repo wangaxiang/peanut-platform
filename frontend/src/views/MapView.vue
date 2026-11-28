@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import maplibregl from 'maplibre-gl'
 import MapboxDraw from '@mapbox/mapbox-gl-draw'
+import { basemapName, imagery } from '../api/basemap'
 import { createEvent, createField, getEvents, getField, updateField } from '../api/fields'
 import { useFields } from '../stores/fields'
 import FarmEventForm from '../components/FarmEventForm.vue'
@@ -32,11 +33,6 @@ const eventForm = ref(false)
 const eventSaving = ref(false)
 const eventError = ref('')
 
-const token = import.meta.env.VITE_TIANDITU_TOKEN?.trim()
-const basemapName = token ? '天地图影像' : '卫星影像'
-const tiles = token
-  ? ['https://t0.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=' + encodeURIComponent(token)]
-  : ['https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}']
 const formattedArea = computed(() => fields.stats
   ? Number(fields.stats.totalAreaMu).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   : '—')
@@ -75,12 +71,7 @@ onMounted(() => {
       attributionControl: { compact: true },
       style: {
         version: 8,
-        sources: {
-          imagery: {
-            type: 'raster', tiles, tileSize: 256, maxzoom: token ? 18 : 19,
-            attribution: token ? '© 天地图' : 'Esri, Maxar, Earthstar Geographics, and the GIS User Community',
-          },
-        },
+        sources: { imagery },
         layers: [
           { id: 'map-background', type: 'background', paint: { 'background-color': '#425747' } },
           { id: 'imagery', type: 'raster', source: 'imagery',

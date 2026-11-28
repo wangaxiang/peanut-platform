@@ -79,6 +79,10 @@ services:
       INFLUXDB_ORG: ${INFLUXDB_ORG:-peanut}
       INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-sensors}
       MQTT_BROKER_URL: tcp://emqx:1883
+      MQTT_USERNAME: ${MQTT_USERNAME:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+      PATROL_IMAGE_DIRECTORY: /var/lib/peanut/patrol
+      PATROL_ZONE: ${PATROL_ZONE:-Asia/Shanghai}
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: ${RABBITMQ_USER:-peanut}
       RABBITMQ_PASS: ${RABBITMQ_PASS:-peanut-rabbit-dev}
@@ -95,7 +99,9 @@ services:
       GROWTH_REPORT_PUBLIC_BASE_URL: ${GROWTH_REPORT_PUBLIC_BASE_URL:-}
       GROWTH_REPORT_PUSHPLUS_TOKEN: ${GROWTH_REPORT_PUSHPLUS_TOKEN:-}
     ports: ["127.0.0.1:8080:8080"]
-    volumes: ["report-data:/var/lib/peanut/reports"]
+    volumes:
+      - report-data:/var/lib/peanut/reports
+      - patrol-data:/var/lib/peanut/patrol
     depends_on:
       postgres: {condition: service_healthy}
       influxdb: {condition: service_healthy}
@@ -111,6 +117,14 @@ services:
   ai-service:
     build: ./ai-service
     environment:
+      PATROL_IMAGE_DIRECTORY: /var/lib/peanut/patrol
+      MQTT_BROKER_URL: tcp://emqx:1883
+      MQTT_USERNAME: ${MQTT_USERNAME:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-peanut-token-dev}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-peanut}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-sensors}
       DB_HOST: postgres
       DB_USER: ${DB_USER:-peanut}
       DB_PASS: ${DB_PASS:-peanut123}
@@ -125,6 +139,7 @@ services:
     ports: ["127.0.0.1:8001:8001"]
     volumes:
       - bge-cache:/root/.cache/huggingface
+      - patrol-data:/var/lib/peanut/patrol
       - ./ai-service/weights:/app/weights
     depends_on:
       backend: {condition: service_healthy}
@@ -159,3 +174,4 @@ volumes:
   ollama-data:
   bge-cache:
   report-data:
+  patrol-data:

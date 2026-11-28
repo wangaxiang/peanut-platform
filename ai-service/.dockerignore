@@ -3,4 +3,8 @@
 !rag/
 !rag/**
 rag/**/__pycache__/
+!ndvi_processor/
+!ndvi_processor/**
+ndvi_processor/**/__pycache__/
+!iot_writer.py
 !Dockerfile

@@ -15,6 +15,10 @@ spring:
     multipart:
       max-file-size: 20MB
       max-request-size: 21MB
+  task:
+    scheduling:
+      pool:
+        size: 4
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
@@ -34,6 +38,12 @@ mqtt:
   broker-url: ${MQTT_BROKER_URL:tcp://localhost:1883}
   client-id: peanut-backend-${random.uuid}
   qos: 1
+  username: ${MQTT_USERNAME:}
+  password: ${MQTT_PASSWORD:}
+
+patrol:
+  zone: ${PATROL_ZONE:Asia/Shanghai}
+  image-directory: ${PATROL_IMAGE_DIRECTORY:../.local/patrol-images}
 
 jwt:
   secret: ${JWT_SECRET:change-me-in-production}

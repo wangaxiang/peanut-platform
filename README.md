@@ -1,6 +1,6 @@
 # 花生种植精准服务平台
 
-当前提供农田管理、知识库管理、智能问答和生长周报。
+当前提供农田管理、智能巡田、NDVI 影像分析、土壤监测、知识库管理、智能问答和生长周报。
 
 ## 本地启动
 
@@ -32,6 +32,14 @@ docker compose exec ollama ollama pull qwen2:7b
 | InfluxDB | http://localhost:8086 |
 | EMQX MQTT / 控制台 | `localhost:1883` / http://localhost:18083 |
 | RabbitMQ AMQP / 控制台 | `localhost:5672` / http://localhost:15672 |
+
+## 智能巡田与土壤监测
+
+在「智能巡田」选择地块，填写设备序列号、五段 cron 和由 GeoJSON Point 要素组成的航线。任务创建时启用，默认按北京时间调度。通过任务开关暂停定时任务，通过「手动触发」立即下发飞行指令。
+
+无人机将状态发布到 `drone/{drone_sn}/status`。作业完成后上报 `{"flightId":201,"phase":"done"}`。可在「飞行记录」上传含红光第 3 波段和近红外第 4 波段的 GeoTIFF（单个文件最多 20 MiB）。设备也可将影像送入共享影像目录，并在完成消息中带上相对路径 `rawImagePath`。设备回报与影像均到达后，平台生成 NDVI 图层。原始影像和生成结果保存在 `patrol-data` 数据卷。
+
+传感器将 JSON 发布到 `sensor/{sn}/data`。示例消息为 `{"fieldId":101,"metrics":{"soil_temp":24.5,"soil_moisture":42.1,"soil_n":85,"soil_p":32,"soil_k":120}}`。可附上毫秒时间戳 `timestamp`。在「土壤监测」选择地块和传感器，查看最新上报和 6 小时、24 小时或 7 天趋势。
 
 ## 验证与停止
 

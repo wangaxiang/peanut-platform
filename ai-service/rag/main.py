@@ -16,6 +16,9 @@ from psycopg2.extras import Json
 from pydantic import BaseModel, Field, StringConstraints
 from starlette.concurrency import run_in_threadpool
 
+from iot_writer import SensorWriter
+from ndvi_processor.api import router as ndvi_router
+
 log = logging.getLogger(__name__)
 model_lock = RLock()
 DOCUMENT_DIMENSIONS = 1536
@@ -39,10 +42,16 @@ def warm_up_models() -> None:
 async def lifespan(_app: FastAPI):
     if os.getenv("RAG_WARM_UP", "false").lower() == "true":
         await run_in_threadpool(warm_up_models)
-    yield
+    sensors = SensorWriter()
+    sensors.start()
+    try:
+        yield
+    finally:
+        sensors.close()
 
 
 app = FastAPI(title="Peanut Knowledge Service", lifespan=lifespan)
+app.include_router(ndvi_router)
 
 Question = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 Content = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=5000)]

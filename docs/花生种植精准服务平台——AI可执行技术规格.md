@@ -332,6 +332,10 @@ GET    /api/iot/sensors?fieldId=            # 传感器实时数据
 GET    /api/iot/sensors/{sn}/history        # 传感器历史数据（?start&end&interval）
 ```
 
+创建任务接收 `{fieldId, taskName, scheduleCron, droneSn, routeGeojson}`，航线是至少含两个 Point 航点的 GeoJSON FeatureCollection。更新状态接收 `{"status":"active"}` 或 `{"status":"paused"}`。手动飞行先调用 `POST /api/patrol/tasks/{id}/flights` 建立待下发记录，再调用对应的 `/trigger`。同一任务在同一分钟只生成一条定时记录，当前分钟无法下发的定时记录超时后标记为失败。
+
+飞行记录页支持 `POST /api/patrol/flights/{id}/image`（multipart 字段 `file`）在结束上报前后上传多光谱影像。设备也可在完成上报中传入共享目录内的 `rawImagePath`。NDVI 成功后，详情返回 `ndviImagePath`、`ndviStats` 和 `ndviTileUrl`，后者指向 TileJSON。
+
 ### 3.2 无人机任务下发（MQTT）
 
 ```
@@ -406,6 +410,8 @@ def compute_ndvi(tif_path: str, output_path: str) -> dict:
 
 ### 3.4 传感器数据写入 InfluxDB
 
+MQTT topic 为 `sensor/{sn}/data`，消息包含 `fieldId` 和 `metrics`，可带 Unix 毫秒时间戳 `timestamp`。历史查询的起止时间使用 ISO 8601，支持 `1m`、`5m` 和 `1h` 均值聚合。返回的 `time` 是聚合窗口的起点，窗口内缺失的指标返回 `null`。
+
 ```python
 # ai-service/iot_writer.py
 from influxdb_client import InfluxDBClient, Point, WritePrecision
@@ -429,10 +435,12 @@ def write_sensor(device_sn: str, field_id: int, metrics: dict):
 
 ### 3.5 验收标准
 
-- [ ] 创建巡田任务后，MQTT 按 cron 表达式自动下发飞行指令
-- [ ] 飞行结束后，`patrol_flight.status` 自动更新为 `processing`，NDVI 处理完成后更新为 `done`
-- [ ] `ndvi_stats` 中三色占比之和 = 100%（±0.1 允许误差）
-- [ ] 传感器历史接口支持 `interval` 参数（1m/5m/1h）返回聚合数据
+- [x] 创建巡田任务后，MQTT 按 cron 表达式自动下发飞行指令
+- [x] 飞行结束后，`patrol_flight.status` 自动更新为 `processing`，NDVI 处理完成后更新为 `done`
+- [x] `ndvi_stats` 中三色占比之和 = 100%（±0.1 允许误差）
+- [x] 传感器历史接口支持 `interval` 参数（1m/5m/1h）返回聚合数据
+
+2026-11-28 在本机 Compose 使用模拟无人机、模拟传感器和合成多光谱 GeoTIFF 验收。EMQX 显示设备状态主题订阅，模拟设备收到手动和定时飞行指令，同一分钟只收到一次定时指令。飞行完成上报后，状态先进入 `processing`，影像生成后自动变为 `done`，三色像元比例合计 100%。Edge 中验证了巡田任务创建、启用与暂停、手动触发、天地图上的 NDVI 切片，以及 6 小时、24 小时和 7 天土壤趋势。历史接口分别返回了预期的 1 分钟、5 分钟和 1 小时均值。
 
 ---
 
@@ -1085,9 +1093,9 @@ jwt:
 [x] 前端地块圈画（MapLibre draw 插件）+ 提交
 
 模块二：智能巡田
-[ ] EMQX 收到设备注册，drone_sn 写入 patrol_task
-[ ] NDVI 处理流水线 end-to-end 测试（输入 TIF → 输出统计）
-[ ] InfluxDB 传感器数据写入 + 查询历史接口
+[x] EMQX 收到设备注册，drone_sn 写入 patrol_task
+[x] NDVI 处理流水线 end-to-end 测试（输入 TIF → 输出统计）
+[x] InfluxDB 传感器数据写入 + 查询历史接口
 
 模块三：病虫害
 [ ] AI 推理服务 /detect 接口单测（上传测试图片）

@@ -9,5 +9,7 @@ RUN --mount=type=cache,target=/root/.cache/pip python -m pip install --only-bina
 RUN --mount=type=cache,target=/root/.cache/pip python -m pip install --only-binary=:all: --timeout 60 \
     -r requirements.txt && python -m pip check
 COPY rag ./rag
+COPY ndvi_processor ./ndvi_processor
+COPY iot_writer.py .
 EXPOSE 8001
 CMD ["python", "-m", "uvicorn", "rag.main:app", "--host", "0.0.0.0", "--port", "8001"]
