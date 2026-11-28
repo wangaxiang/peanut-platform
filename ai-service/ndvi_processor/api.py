@@ -23,6 +23,8 @@ TILE_SIZE = 256
 class ProcessRequest(BaseModel):
     tif_path: str = Field(min_length=1, max_length=1024)
     flight_id: int | None = Field(default=None, gt=0)
+    red_band: int = Field(default=3, ge=1)
+    nir_band: int = Field(default=4, ge=1)
 
 
 def image_path(relative: str, *, generated: bool = False) -> Path:
@@ -43,7 +45,7 @@ def process(request: ProcessRequest):
     output = directory / f"{identifier}.tif"
     temporary = directory / f".{uuid4().hex}.tif"
     try:
-        stats = compute_ndvi(source, temporary)
+        stats = compute_ndvi(source, temporary, request.red_band, request.nir_band)
         temporary.replace(output)
     except (RasterioError, ValueError) as exc:
         raise HTTPException(422, str(exc)) from exc

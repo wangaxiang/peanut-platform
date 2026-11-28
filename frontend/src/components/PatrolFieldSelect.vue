@@ -1,8 +1,8 @@
 <script setup>
-import { onMounted, ref } from 'vue'
-import { getFields } from '../api/fields'
+import { onMounted, ref, watch } from 'vue'
+import { getField, getFields } from '../api/fields'
 
-defineProps({
+const props = defineProps({
   modelValue: Number,
   label: { type: String, default: '全部地块' },
   clearable: { type: Boolean, default: true },
@@ -34,13 +34,22 @@ function select(value) {
 }
 
 onMounted(search)
+watch(() => props.modelValue, async id => {
+  if (!id || options.value.some(field => field.id === id) || selected.value?.id === id) return
+  try {
+    const field = await getField(id)
+    if (props.modelValue === id) selected.value = field
+  } catch {
+    if (props.modelValue === id) failed.value = true
+  }
+}, { immediate: true })
 </script>
 
 <template>
   <el-select :model-value="modelValue" :aria-label="label" :placeholder="label"
     filterable remote :remote-method="search" :clearable="clearable" :loading="loading"
     :no-data-text="failed ? '地块加载失败，请重新搜索' : '暂无匹配地块'" @update:model-value="select">
-    <el-option v-if="selected && !options.some(field => field.id === selected.id)"
+    <el-option v-if="selected && selected.id === modelValue && !options.some(field => field.id === selected.id)"
       :label="selected.name" :value="selected.id" />
     <el-option v-for="field in options" :key="field.id" :label="field.name" :value="field.id" />
   </el-select>

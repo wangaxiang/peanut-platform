@@ -1,11 +1,15 @@
 package com.peanut.module.patrol;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
@@ -28,16 +32,21 @@ class PatrolMqtt implements MqttCallback {
     private final int qos;
     private final ObjectMapper json;
     private final PatrolRepository repository;
+    private final PatrolDeviceService devices;
+    private final Path imageDirectory;
     private final Set<String> subscriptions = new HashSet<>();
     private final MqttConnectOptions options = new MqttConnectOptions();
 
     PatrolMqtt(@Value("${mqtt.broker-url}") String broker, @Value("${mqtt.client-id}") String id,
             @Value("${mqtt.qos}") int qos, @Value("${mqtt.username:}") String user,
-            @Value("${mqtt.password:}") String password, ObjectMapper json, PatrolRepository repository)
+            @Value("${mqtt.password:}") String password, @Value("${patrol.image-directory}") String imageDirectory,
+            ObjectMapper json, PatrolRepository repository, PatrolDeviceService devices)
             throws MqttException {
         this.qos = qos;
         this.json = json;
         this.repository = repository;
+        this.devices = devices;
+        this.imageDirectory = Path.of(imageDirectory).toAbsolutePath().normalize();
         client = new MqttClient(broker, id, new MemoryPersistence());
         client.setTimeToWait(4000);
         client.setCallback(this);
@@ -56,9 +65,8 @@ class PatrolMqtt implements MqttCallback {
                 subscriptions.clear();
             }
             subscribe("drone/+/status");
-            for (String sn : repository.droneSerials()) {
-                subscribe("drone/" + sn + "/status");
-            }
+            subscribe("dock/+/status");
+            subscribe("sensor/+/data");
         } catch (MqttException e) {
             LOG.warn("MQTT patrol subscriptions unavailable ({})", e.getReasonCode());
         }
@@ -75,10 +83,11 @@ class PatrolMqtt implements MqttCallback {
         return client.isConnected();
     }
 
-    void publish(PatrolTask task, long flightId) throws Exception {
+    void publish(PatrolTask task, String serial, long flightId) throws Exception {
         byte[] command = json.writeValueAsBytes(Map.of("taskId", task.id(), "flightId", flightId,
-                "action", "start", "route", task.routeGeojson(), "returnPolicy", "auto_land"));
-        client.publish("drone/" + task.droneSn() + "/cmd/task", command, qos, false);
+                "action", "start", "route", task.routeGeojson(), "returnPolicy", "auto_land",
+                "issuedAt",Instant.now().toString()));
+        client.publish("drone/" + serial + "/cmd/task", command, qos, false);
     }
 
     @Override
@@ -86,24 +95,49 @@ class PatrolMqtt implements MqttCallback {
         if (message.isRetained()) {
             return;
         }
-        com.fasterxml.jackson.databind.JsonNode data;
+        JsonNode data;
         try {
             data = json.readTree(new String(message.getPayload(), StandardCharsets.UTF_8));
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             LOG.warn("Ignoring invalid JSON from {}", topic);
             return;
         }
-        if (data == null || !data.path("flightId").isIntegralNumber() || !data.path("flightId").canConvertToLong()) {
+        String[] parts = topic.split("/");
+        if (data == null || parts.length != 3 || !parts[1].matches(PatrolDeviceService.SERIAL)) {
+            return;
+        }
+        PatrolDevice device = devices.report(parts[0],parts[1],data);
+        if (device == null) {
+            LOG.debug("Ignored patrol telemetry for {}",topic);
+            return;
+        }
+        if (!"drone".equals(device.deviceType()) || !data.path("flightId").isIntegralNumber()
+                || !data.path("flightId").canConvertToLong()) {
             return;
         }
         String phase = data.path("phase").asText();
         if ("done".equals(phase) || "failed".equals(phase) || "fault".equals(phase)) {
-            String raw = data.path("rawImagePath").isTextual() ? data.path("rawImagePath").asText() : null;
-            if (raw != null && (raw.isBlank() || raw.length() > 1024)) {
-                raw = null;
-            }
-            repository.handleDroneReport(data.path("flightId").asLong(), topic.split("/")[1], phase, raw);
+            String raw = sharedImage(data.path("rawImagePath").asText(""));
+            String fault = data.path("faultMessage").asText("无人机报告飞行失败");
+            repository.handleDroneReport(data.path("flightId").asLong(),device.id(),device.deviceSn(),phase,
+                    raw,fault.substring(0,Math.min(fault.length(),4000)));
         }
+    }
+
+    private String sharedImage(String raw) {
+        if (raw.isBlank() || raw.length() > 1024) {
+            return null;
+        }
+        try {
+            Path root = imageDirectory.toRealPath();
+            Path candidate = root.resolve(raw).toRealPath();
+            if (candidate.startsWith(root) && Files.isRegularFile(candidate)) {
+                return root.relativize(candidate).toString().replace('\\','/');
+            }
+        } catch (java.io.IOException | IllegalArgumentException e) {
+            LOG.debug("Reported patrol image is unavailable in the shared directory");
+        }
+        return null;
     }
 
     @Override

@@ -7,7 +7,9 @@ import java.util.Map;
 import com.peanut.common.ApiResult;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.CacheControl;
@@ -44,14 +46,20 @@ class PatrolController {
         return ApiResult.ok(patrol.setStatus(id, input.status()));
     }
 
+    @PutMapping("/tasks/{id}/drone")
+    ApiResult<PatrolTask> mapLegacyTask(@PathVariable long id, @RequestBody @Valid LegacyDrone input) {
+        return ApiResult.ok(patrol.mapLegacyTask(id,input.droneDeviceId()));
+    }
+
     @PostMapping("/tasks/{id}/flights")
     ApiResult<PatrolFlight> newFlight(@PathVariable long id) {
         return ApiResult.ok(patrol.newFlight(id));
     }
 
     @GetMapping("/flights")
-    ApiResult<Page<PatrolFlight>> flights(@RequestParam(required = false) Long fieldId, Pageable page) {
-        return ApiResult.ok(repository.flights(fieldId, page));
+    ApiResult<Page<PatrolFlight>> flights(@RequestParam(required = false) Long fieldId,
+            @RequestParam(defaultValue = "false") boolean ndviOnly, Pageable page) {
+        return ApiResult.ok(repository.flights(fieldId,ndviOnly,page));
     }
 
     @GetMapping("/flights/{id}")
@@ -81,4 +89,5 @@ class PatrolController {
     }
 
     record TaskStatus(@NotBlank @Pattern(regexp = "active|paused") String status) {}
+    record LegacyDrone(@NotNull @Positive Long droneDeviceId) {}
 }

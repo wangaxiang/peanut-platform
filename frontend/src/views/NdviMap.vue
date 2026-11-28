@@ -86,6 +86,7 @@ onBeforeUnmount(() => { disposed = true; map?.remove() })
           <div><dt>均值</dt><dd>{{ flight.ndviStats.mean.toFixed(3) }}</dd></div>
           <div><dt>标准差</dt><dd>{{ flight.ndviStats.std.toFixed(3) }}</dd></div>
         </dl>
+        <p v-if="flight.ndviStats.valid_pixel_count != null" class="monitor-muted">有效像元 {{ flight.ndviStats.valid_pixel_count.toLocaleString('zh-CN') }}</p>
         <div v-for="grade in grades" :key="grade.key" class="ndvi-grade">
           <div><span>{{ grade.label }} <small>{{ grade.range }}</small></span>
             <strong>{{ flight.ndviStats[grade.key].toFixed(1) }}%</strong></div>

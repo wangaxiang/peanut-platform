@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import PatrolFieldSelect from '../components/PatrolFieldSelect.vue'
 import SoilChart from '../components/SoilChart.vue'
 import { formatTime, getSensorHistory, getSensors, requestMessage } from '../api/patrol'
+const props = defineProps({ initialSerial: String })
 
 const climate = [
   { key: 'soil_temp', label: '土壤温度', unit: '°C', color: '#bd5c32' },
@@ -36,18 +37,11 @@ async function refreshDevices() {
   const current = ++deviceRequest
   loadingDevices.value = true
   latestError.value = ''
-  const previous = serial.value
+  const previous = serial.value ?? props.initialSerial
   try {
     const result = await getSensors(fieldId.value)
     if (current !== deviceRequest) return
-    const bySerial = new Map()
-    for (const device of result) {
-      const previousReading = bySerial.get(device.deviceSn)
-      if (!previousReading || Date.parse(device.time) > Date.parse(previousReading.time)) {
-        bySerial.set(device.deviceSn, device)
-      }
-    }
-    devices.value = [...bySerial.values()].sort((a, b) => Date.parse(b.time) - Date.parse(a.time))
+    devices.value = result
     serial.value = devices.value.some(device => device.deviceSn === previous) ? previous : devices.value[0]?.deviceSn
     if (serial.value === previous) await refreshHistory()
   } catch (cause) {
@@ -95,7 +89,8 @@ watch(fieldId, () => { devices.value = []; serial.value = undefined; refreshDevi
         <h2>传感器读数</h2>
         <PatrolFieldSelect v-model="fieldId" />
         <el-select v-model="serial" aria-label="传感器" placeholder="选择传感器" :loading="loadingDevices">
-          <el-option v-for="device in devices" :key="device.deviceSn" :label="device.deviceSn" :value="device.deviceSn" />
+          <el-option v-for="device in devices" :key="device.deviceSn"
+            :label="`${device.deviceName} · ${device.online ? '在线' : '离线'}`" :value="device.deviceSn" />
         </el-select>
         <el-select v-model="range" aria-label="时间范围">
           <el-option v-for="(option, value) in ranges" :key="value" :value="value" :label="option.label" />
@@ -103,7 +98,11 @@ watch(fieldId, () => { devices.value = []; serial.value = undefined; refreshDevi
       </div>
       <p v-if="latestError" class="monitor-error" role="alert">{{ latestError }}</p>
       <template v-if="latest">
-        <p class="monitor-muted sensor-time">最近上报 {{ formatTime(latest.time) }}</p>
+        <div class="sensor-time sensor-device">
+          <a :href="`#/patrol/devices/${latest.id}`">{{ latest.deviceName }}</a>
+          <span class="flight-tag" :class="{ done: latest.online }">{{ latest.online ? '在线' : '离线' }}</span>
+          <span class="monitor-muted">{{ latest.deviceSn }} · {{ latest.fieldName }} · 最近上报 {{ formatTime(latest.lastSeenAt) }}</span>
+        </div>
         <dl class="sensor-metrics">
           <div v-for="metric in metrics" :key="metric.key">
             <dt>{{ metric.label }}</dt>

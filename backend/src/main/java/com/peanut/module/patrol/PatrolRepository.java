@@ -21,12 +21,23 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 class PatrolRepository {
+    private static final String TASK_COLUMNS = """
+            t.*, f.name AS field_name, coalesce(d.device_sn,t.drone_sn) AS display_sn,
+            d.device_name AS drone_name, d.online AS drone_online, dock.device_name AS dock_name
+            """;
+    private static final String FLIGHT_COLUMNS = """
+            p.*, t.task_name, f.name AS field_name, d.device_name AS drone_name,
+            coalesce(d.device_sn,t.drone_sn) AS display_sn
+            """;
     private static final String TASKS = """
             FROM patrol_task t JOIN field f ON f.id = t.field_id
+            LEFT JOIN patrol_device d ON d.id=t.drone_device_id
+            LEFT JOIN patrol_device dock ON dock.id=d.parent_device_id
             WHERE t.status <> 'deleted'
             """;
     private static final String FLIGHTS = """
             FROM patrol_flight p JOIN patrol_task t ON t.id = p.task_id JOIN field f ON f.id = p.field_id
+            LEFT JOIN patrol_device d ON d.id=p.drone_device_id
             WHERE true
             """;
     private final JdbcClient jdbc;
@@ -38,11 +49,12 @@ class PatrolRepository {
     }
 
     Page<PatrolTask> tasks(Long fieldId, Pageable page) {
-        return page("t.*, f.name AS field_name", TASKS, "t", fieldId, page, this::taskRow);
+        return page(TASK_COLUMNS, TASKS, "t", fieldId, page, this::taskRow);
     }
 
-    Page<PatrolFlight> flights(Long fieldId, Pageable page) {
-        return page("p.*, t.task_name, f.name AS field_name", FLIGHTS, "p", fieldId, page, this::flightRow);
+    Page<PatrolFlight> flights(Long fieldId, boolean ndviOnly, Pageable page) {
+        String from = ndviOnly ? FLIGHTS + " AND p.status='done' AND p.ndvi_tile_url IS NOT NULL" : FLIGHTS;
+        return page(FLIGHT_COLUMNS, from, "p", fieldId, page, this::flightRow);
     }
 
     private <T> Page<T> page(String columns, String from, String alias, Long fieldId, Pageable page, RowMapper<T> mapper) {
@@ -56,12 +68,12 @@ class PatrolRepository {
     }
 
     Optional<PatrolTask> task(long id) {
-        return jdbc.sql("SELECT t.*, f.name AS field_name " + TASKS + " AND t.id = :id")
+        return jdbc.sql("SELECT " + TASK_COLUMNS + TASKS + " AND t.id = :id")
                 .param("id", id).query(this::taskRow).optional();
     }
 
     Optional<PatrolFlight> flight(long id) {
-        return jdbc.sql("SELECT p.*, t.task_name, f.name AS field_name " + FLIGHTS + " AND p.id = :id")
+        return jdbc.sql("SELECT " + FLIGHT_COLUMNS + FLIGHTS + " AND p.id = :id")
                 .param("id", id).query(this::flightRow).optional();
     }
 
@@ -72,11 +84,12 @@ class PatrolRepository {
 
     long insertTask(PatrolService.CreateTask input, String cron) {
         return jdbc.sql("""
-                INSERT INTO patrol_task(field_id, task_name, schedule_cron, scheduled_at, drone_sn, route_geojson)
-                VALUES (:field, :name, :cron, :scheduledAt, :sn, CAST(:route AS jsonb)) RETURNING id
+                INSERT INTO patrol_task(field_id, task_name, schedule_cron, scheduled_at, drone_device_id, requires_dock, route_geojson)
+                VALUES (:field, :name, :cron, :scheduledAt, :drone, :dock, CAST(:route AS jsonb)) RETURNING id
                 """).param("field", input.fieldId()).param("name", input.taskName().strip())
                 .param("cron", cron).param("scheduledAt", timestamp(input.scheduledAt()))
-                .param("sn", input.droneSn()).param("route", input.routeGeojson().toString())
+                .param("drone", input.droneDeviceId()).param("dock", input.requiresDock())
+                .param("route", input.routeGeojson().toString())
                 .query(Long.class).single();
     }
 
@@ -86,20 +99,22 @@ class PatrolRepository {
     }
 
     List<PatrolTask> activeTasks(Instant slot) {
-        return jdbc.sql("SELECT t.*, f.name AS field_name " + TASKS
+        return jdbc.sql("SELECT " + TASK_COLUMNS + TASKS
                 + " AND t.status = 'active' AND (t.scheduled_at IS NULL OR t.scheduled_at = :slot)")
                 .param("slot", timestamp(slot)).query(this::taskRow).list();
     }
 
-    List<String> droneSerials() {
-        return jdbc.sql("SELECT DISTINCT drone_sn FROM patrol_task WHERE drone_sn IS NOT NULL AND status <> 'deleted'")
-                .query(String.class).list();
+    boolean mapLegacyTask(long id, long droneId) {
+        return jdbc.sql("""
+                UPDATE patrol_task SET drone_device_id=:drone
+                WHERE id=:id AND status<>'deleted' AND drone_device_id IS NULL AND drone_sn IS NOT NULL
+                """).param("id",id).param("drone",droneId).update() == 1;
     }
 
     Optional<Long> insertFlight(long taskId, Instant scheduledFor) {
         return jdbc.sql("""
-                INSERT INTO patrol_flight(task_id, field_id, scheduled_for)
-                SELECT id, field_id, :slot FROM patrol_task WHERE id = :task AND status = 'active'
+                INSERT INTO patrol_flight(task_id, field_id, scheduled_for, drone_device_id)
+                SELECT id, field_id, :slot, drone_device_id FROM patrol_task WHERE id = :task AND status = 'active'
                 ON CONFLICT (task_id, scheduled_for) DO NOTHING RETURNING id
                 """).param("task", taskId).param("slot", timestamp(scheduledFor)).query(Long.class).optional();
     }
@@ -116,28 +131,42 @@ class PatrolRepository {
 
     boolean startFlight(long id) {
         return jdbc.sql("""
-                UPDATE patrol_flight p SET status = 'flying', start_time = now()
+                UPDATE patrol_flight p SET status = 'dispatching', start_time = now()
                 FROM patrol_task t WHERE p.id = :id AND t.id = p.task_id
                     AND p.status = 'pending' AND t.status = 'active'
                 """).param("id", id).update() == 1;
     }
 
-    void dispatchFailed(long id) {
-        jdbc.sql("""
-                UPDATE patrol_flight SET status = 'failed', end_time = now(), error_message = 'MQTT 指令未确认'
-                WHERE id = :id AND status = 'flying'
-                """).param("id", id).update();
+    void confirmDispatch(long id) {
+        jdbc.sql("UPDATE patrol_flight SET status='flying' WHERE id=:id AND status='dispatching'")
+                .param("id",id).update();
     }
 
-    void handleDroneReport(long id, String sn, String phase, String rawPath) {
+    void failPendingFlight(long id, String error) {
+        jdbc.sql("""
+                UPDATE patrol_flight SET status='failed',end_time=now(),error_message=:error
+                WHERE id=:id AND status='pending'
+                """).param("id",id).param("error",error).update();
+    }
+
+    void dispatchFailed(long id, String error) {
+        jdbc.sql("""
+                UPDATE patrol_flight SET status='failed',end_time=now(),error_message=:error
+                WHERE id=:id AND status IN ('pending','dispatching')
+                """).param("id",id).param("error",error).update();
+    }
+
+    void handleDroneReport(long id, long deviceId, String sn, String phase, String rawPath, String fault) {
         jdbc.sql("""
                 UPDATE patrol_flight p
                 SET status = CASE WHEN :phase = 'done' THEN 'processing' ELSE 'failed' END,
                     end_time = now(), raw_image_path = coalesce(:raw, p.raw_image_path),
-                    error_message = CASE WHEN :phase = 'done' THEN NULL ELSE '无人机报告飞行失败' END
-                FROM patrol_task t WHERE p.id = :id AND t.id = p.task_id AND t.drone_sn = :sn
-                    AND p.status = 'flying'
-                """).param("id", id).param("sn", sn).param("phase", phase).param("raw", rawPath).update();
+                    error_message = CASE WHEN :phase = 'done' THEN NULL ELSE :fault END
+                FROM patrol_task t WHERE p.id=:id AND t.id=p.task_id
+                    AND (p.drone_device_id=:device OR (p.drone_device_id IS NULL AND t.drone_sn=:sn))
+                    AND p.status IN ('dispatching','flying')
+                """).param("id",id).param("device",deviceId).param("sn",sn).param("phase",phase)
+                .param("raw", rawPath).param("fault",fault).update();
     }
 
     boolean attachImage(long id, String rawPath) {
@@ -179,8 +208,10 @@ class PatrolRepository {
 
     private PatrolTask taskRow(ResultSet rs, int row) throws SQLException {
         return new PatrolTask(rs.getLong("id"), rs.getLong("field_id"), rs.getString("field_name"),
-                rs.getString("task_name"), rs.getString("schedule_cron"), time(rs, "scheduled_at"), rs.getString("drone_sn"),
-                readJson(rs, "route_geojson"), rs.getString("status"), time(rs, "created_at"));
+                rs.getString("task_name"), rs.getString("schedule_cron"), time(rs, "scheduled_at"), rs.getString("display_sn"),
+                readJson(rs, "route_geojson"), rs.getString("status"), time(rs, "created_at"),
+                rs.getObject("drone_device_id",Long.class),rs.getString("drone_name"),rs.getObject("drone_online",Boolean.class),
+                rs.getString("dock_name"),rs.getBoolean("requires_dock"));
     }
 
     private PatrolFlight flightRow(ResultSet rs, int row) throws SQLException {
@@ -188,7 +219,8 @@ class PatrolRepository {
                 rs.getLong("field_id"), rs.getString("field_name"), rs.getString("status"),
                 time(rs, "start_time"), time(rs, "end_time"), time(rs, "scheduled_for"), time(rs, "created_at"),
                 rs.getString("raw_image_path"), rs.getString("ndvi_image_path"), rs.getString("ndvi_tile_url"),
-                readJson(rs, "ndvi_stats"), rs.getString("error_message"));
+                readJson(rs, "ndvi_stats"), rs.getString("error_message"),rs.getObject("drone_device_id",Long.class),
+                rs.getString("drone_name"),rs.getString("display_sn"));
     }
 
     private JsonNode readJson(ResultSet rs, String column) throws SQLException {
@@ -200,12 +232,12 @@ class PatrolRepository {
         }
     }
 
-    private static Instant time(ResultSet rs, String column) throws SQLException {
+    static Instant time(ResultSet rs, String column) throws SQLException {
         OffsetDateTime value = rs.getObject(column, OffsetDateTime.class);
         return value == null ? null : value.toInstant();
     }
 
-    private static OffsetDateTime timestamp(Instant value) {
+    static OffsetDateTime timestamp(Instant value) {
         return value == null ? null : value.atOffset(ZoneOffset.UTC);
     }
 

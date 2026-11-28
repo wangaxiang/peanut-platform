@@ -1,0 +1,31 @@
+# Use with -p peanut-device-qa to keep test services, network and volumes separate.
+services:
+  postgres:
+    ports: !reset []
+  influxdb:
+    ports: !reset []
+  emqx:
+    ports: !reset []
+  rabbitmq:
+    ports: !reset []
+  backend:
+    image: peanut-platform-backend:latest
+    ports: !reset []
+    environment:
+      PATROL_DRONE_OFFLINE_SECONDS: "12"
+      PATROL_DOCK_OFFLINE_SECONDS: "18"
+      PATROL_SENSOR_OFFLINE_SECONDS: "18"
+      PATROL_OFFLINE_SCAN_MS: "500"
+      GROWTH_REPORT_CRON: "-"
+  ai-service:
+    image: peanut-platform-ai-service:latest
+    ports: !reset []
+    environment:
+      RAG_WARM_UP: "false"
+    volumes: !override
+      - patrol-data:/var/lib/peanut/patrol
+    depends_on: !override
+      backend: {condition: service_healthy}
+  frontend:
+    image: peanut-platform-frontend:latest
+    ports: !override ["127.0.0.1:13000:80"]

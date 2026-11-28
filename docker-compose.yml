@@ -83,6 +83,10 @@ services:
       MQTT_PASSWORD: ${MQTT_PASSWORD:-}
       PATROL_IMAGE_DIRECTORY: /var/lib/peanut/patrol
       PATROL_ZONE: ${PATROL_ZONE:-Asia/Shanghai}
+      PATROL_DRONE_OFFLINE_SECONDS: ${PATROL_DRONE_OFFLINE_SECONDS:-90}
+      PATROL_DOCK_OFFLINE_SECONDS: ${PATROL_DOCK_OFFLINE_SECONDS:-180}
+      PATROL_SENSOR_OFFLINE_SECONDS: ${PATROL_SENSOR_OFFLINE_SECONDS:-180}
+      PATROL_OFFLINE_SCAN_MS: ${PATROL_OFFLINE_SCAN_MS:-5000}
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: ${RABBITMQ_USER:-peanut}
       RABBITMQ_PASS: ${RABBITMQ_PASS:-peanut-rabbit-dev}
@@ -117,6 +121,7 @@ services:
   ai-service:
     build: ./ai-service
     environment:
+      BACKEND_INTERNAL_URL: http://backend:8080
       PATROL_IMAGE_DIRECTORY: /var/lib/peanut/patrol
       MQTT_BROKER_URL: tcp://emqx:1883
       MQTT_USERNAME: ${MQTT_USERNAME:-}

@@ -29,6 +29,37 @@
 .patrol-schedule-options { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 .patrol-schedule-options label { display: inline-flex; align-items: center; gap: 5px; font-weight: 500; cursor: pointer; }
 .patrol-schedule-options input { margin: 0; accent-color: var(--forest); }
+.patrol-dock-check { display: flex; align-items: center; gap: 5px; }
+.patrol-dock-check input { accent-color: var(--forest); }
+.patrol-tabs { display: flex; gap: 8px; padding: 8px 26px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.patrol-tabs a { flex-shrink: 0; white-space: nowrap; color: var(--forest); text-decoration: none; padding: 7px 11px; border-radius: 6px; font-size: .88rem; }
+.patrol-tabs a[aria-current="page"] { background: #deece0; font-weight: 700; }
+.patrol-tabs + .monitor-page { min-height: calc(100vh - 100px); }
+.device-stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 0 0 18px; }
+.device-stat-grid > div { padding: 16px 18px; border-top: 3px solid #75a38a; }
+.device-stat-grid dt, .device-facts dt { color: var(--muted); font-size: .86rem; }
+.device-stat-grid dd { margin: 5px 0 0; font-size: 1.65rem; font-weight: 700; }
+.device-filters { flex-wrap: wrap; }
+.device-filters > .el-input { max-width: 235px; }
+.device-filters .el-select { width: min(150px, 100%); }
+.device-row-actions { display: flex; flex-wrap: wrap; gap: 4px; min-width: 145px; }
+.device-row-actions .el-button + .el-button { margin-left: 0; }
+.device-detail { padding: 18px; margin-bottom: 16px; }
+.device-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 13px; margin: 16px 0; }
+.device-facts div { border: 1px solid var(--line); border-radius: 7px; padding: 10px; }
+.device-facts dd { margin: 5px 0 0; overflow-wrap: anywhere; }
+.device-fault { color: #a23830; }
+.device-detail-extras { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+.device-detail-extras pre { max-width: min(460px, 72vw); overflow: auto; }
+.device-maintenance { margin: 0; padding: 0 20px 16px 38px; }
+.device-maintenance li { border-bottom: 1px solid var(--line); padding: 10px 0; }
+.device-maintenance time { margin-left: .75em; font-size: .82rem; color: var(--muted); }
+.device-maintenance p { margin-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sensor-device { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+@media (max-width: 600px) {
+  .patrol-tabs { padding-inline: 12px; }
+  .device-stat-grid { grid-template-columns: repeat(2, 1fr); }
+}
 .flight-tag { display: inline-block; white-space: nowrap; padding: 4px 8px; border-radius: 5px; background: #edf0ed; color: #556357; font-size: .77rem; font-weight: 700; }
 .flight-tag.flying { color: #1b5277; background: #e2f1fb; }
 .flight-tag.processing { color: #825018; background: #fbecd6; }

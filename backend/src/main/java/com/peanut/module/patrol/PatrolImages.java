@@ -28,13 +28,16 @@ class PatrolImages {
     private static final Logger LOG = LoggerFactory.getLogger(PatrolImages.class);
     private final PatrolRepository repository;
     private final PatrolService patrol;
+    private final PatrolDeviceService devices;
     private final RestClient ai;
     private final Path directory;
 
-    PatrolImages(PatrolRepository repository, PatrolService patrol, @Value("${ai-service.base-url}") String aiUrl,
+    PatrolImages(PatrolRepository repository, PatrolService patrol, PatrolDeviceService devices,
+            @Value("${ai-service.base-url}") String aiUrl,
             @Value("${patrol.image-directory}") String directory) {
         this.repository = repository;
         this.patrol = patrol;
+        this.devices = devices;
         this.directory = Path.of(directory).toAbsolutePath().normalize();
         var factory = new JdkClientHttpRequestFactory(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(4)).build());
         factory.setReadTimeout(Duration.ofMinutes(4));
@@ -73,8 +76,12 @@ class PatrolImages {
         repository.claimImage().ifPresent(job -> {
             JsonNode result;
             try {
+                PatrolFlight flight = patrol.flight(job.id());
+                JsonNode capabilities = flight.droneDeviceId() == null ? null : devices.get(flight.droneDeviceId()).capabilities();
+                int red = capabilities == null ? 3 : capabilities.path("redBand").asInt(3);
+                int nir = capabilities == null ? 4 : capabilities.path("nirBand").asInt(4);
                 result = ai.post().uri("/ndvi/process")
-                        .body(Map.of("tif_path", job.rawPath(), "flight_id", job.id()))
+                        .body(Map.of("tif_path", job.rawPath(), "flight_id", job.id(),"red_band",red,"nir_band",nir))
                         .retrieve().body(JsonNode.class);
                 if (result == null || !result.path("stats").isObject() || !result.path("ndviPath").isTextual()) {
                     throw new IllegalStateException("Invalid NDVI response");

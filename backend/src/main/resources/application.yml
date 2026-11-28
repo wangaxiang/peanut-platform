@@ -42,6 +42,11 @@ mqtt:
   password: ${MQTT_PASSWORD:}
 
 patrol:
+  offline:
+    drone-seconds: ${PATROL_DRONE_OFFLINE_SECONDS:90}
+    dock-seconds: ${PATROL_DOCK_OFFLINE_SECONDS:180}
+    sensor-seconds: ${PATROL_SENSOR_OFFLINE_SECONDS:180}
+    scan-ms: ${PATROL_OFFLINE_SCAN_MS:5000}
   zone: ${PATROL_ZONE:Asia/Shanghai}
   image-directory: ${PATROL_IMAGE_DIRECTORY:../.local/patrol-images}
 

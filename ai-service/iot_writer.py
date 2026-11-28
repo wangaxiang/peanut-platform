@@ -4,6 +4,8 @@ import math
 import os
 import re
 from urllib.parse import urlsplit
+from urllib.request import urlopen
+from urllib.error import HTTPError
 
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
@@ -16,6 +18,7 @@ METRICS = ("soil_temp", "soil_moisture", "soil_n", "soil_p", "soil_k")
 class SensorWriter:
     def __init__(self):
         self.bucket = os.getenv("INFLUXDB_BUCKET", "sensors")
+        self.backend = os.getenv("BACKEND_INTERNAL_URL", "http://127.0.0.1:8080").rstrip("/")
         self.influx = InfluxDBClient(url=os.getenv("INFLUXDB_URL", "http://127.0.0.1:8086"),
                                      token=os.getenv("INFLUXDB_TOKEN", "peanut-token-dev"),
                                      org=os.getenv("INFLUXDB_ORG", "peanut"), timeout=5000)
@@ -54,19 +57,34 @@ class SensorWriter:
             payload = json.loads(message.payload)
             if not isinstance(payload, dict) or message.retain or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", serial):
                 raise ValueError("invalid sensor message")
-            field_id = payload.get("fieldId", payload.get("field_id"))
-            if type(field_id) is not int or not 0 < field_id <= 9223372036854775807:
-                raise ValueError("invalid fieldId")
             metrics = payload.get("metrics", payload)
             timestamp = payload.get("timestamp")
             if not isinstance(metrics, dict) or (timestamp is not None
                     and (type(timestamp) is not int or not 0 < timestamp <= 9223372036854)):
                 raise ValueError("invalid metrics or timestamp")
+            field_id = self.registered_field(serial)
+            for key in ("fieldId", "field_id"):
+                if key in payload and (type(payload[key]) is not int or payload[key] != field_id):
+                    raise ValueError("reported field differs from the registered binding")
+            for key, maximum in (("battery", 100), ("lng", 180), ("lat", 90), ("altitude", 999999)):
+                value = payload.get(key)
+                minimum = 0 if key == "battery" else -maximum
+                if value is not None and (type(value) not in (int, float) or not minimum <= value <= maximum):
+                    raise ValueError("invalid device telemetry")
             self.write_sensor(serial, field_id, metrics, timestamp)
         except (ValueError, TypeError, OverflowError) as exc:
             log.warning("Ignoring invalid sensor reading (%s)", exc)
         except Exception:
             log.exception("Could not write reading from %s to InfluxDB", message.topic)
+
+    def registered_field(self, serial):
+        try:
+            with urlopen(f"{self.backend}/internal/patrol/sensors/{serial}/binding", timeout=4) as response:
+                return json.load(response)["fieldId"]
+        except HTTPError as exc:
+            if exc.code in (404, 409):
+                raise ValueError("sensor is unregistered or inactive") from exc
+            raise
 
     def write_sensor(self, device_sn, field_id, metrics, timestamp=None):
         point = Point("soil_sensor").tag("device_sn", device_sn).tag("field_id", str(field_id))

@@ -4,7 +4,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import PatrolFieldSelect from '../components/PatrolFieldSelect.vue'
 import { formatTime, getFlights, requestMessage, triggerFlight, uploadFlightImage } from '../api/patrol'
 
-const statuses = { pending: '待下发', flying: '飞行中', processing: '处理中', done: '已完成', failed: '失败' }
+const props = defineProps({ ndviOnly: Boolean })
+const statuses = { pending: '待下发', dispatching: '下发中', flying: '飞行中', processing: '处理中', done: '已完成', failed: '失败' }
 const fieldId = ref()
 const page = ref(1)
 const result = ref({ content: [], totalElements: 0 })
@@ -18,7 +19,7 @@ async function refresh() {
   const current = ++request
   loading.value = true
   try {
-    const data = await getFlights({ fieldId: fieldId.value, page: page.value - 1, size: 20 })
+    const data = await getFlights({ fieldId: fieldId.value, ndviOnly: props.ndviOnly || undefined, page: page.value - 1, size: 20 })
     if (current === request) {
       result.value = data
       error.value = ''
@@ -87,7 +88,7 @@ onBeforeUnmount(() => { clearInterval(timer); request++ })
 <template>
   <main class="monitor-page">
     <header class="monitor-header">
-      <div><h1>飞行记录</h1><p>跟踪任务下发、影像上传和 NDVI 处理进度。</p></div>
+      <div><h1>{{ ndviOnly ? 'NDVI 监测' : '飞行记录' }}</h1><p>{{ ndviOnly ? '按地块查看已生成的植被指数地图。' : '跟踪任务下发、影像上传和 NDVI 处理进度。' }}</p></div>
       <el-button :loading="loading" @click="refresh">刷新记录</el-button>
     </header>
     <section class="monitor-panel">
@@ -98,7 +99,12 @@ onBeforeUnmount(() => { clearInterval(timer); request++ })
           <thead><tr><th>飞行</th><th>地块</th><th>开始时间</th><th>结束时间</th><th>状态</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="flight in result.content" :key="flight.id">
-              <td><strong>{{ flight.taskName || '巡田任务' }}</strong><small>#{{ flight.id }} · {{ flight.scheduledFor ? '定时' : '手动' }}</small></td>
+              <td><strong>{{ flight.taskName || '巡田任务' }}</strong><small>#{{ flight.id }} · {{ flight.scheduledFor ? '定时' : '手动' }}</small>
+                <small v-if="flight.droneSn">
+                  <a v-if="flight.droneDeviceId" :href="`#/patrol/devices/${flight.droneDeviceId}`">{{ flight.droneName }} · {{ flight.droneSn }}</a>
+                  <span v-else>{{ flight.droneSn }}</span>
+                </small>
+              </td>
               <td>{{ flight.fieldName }}</td><td>{{ formatTime(flight.startTime) }}</td><td>{{ formatTime(flight.endTime) }}</td>
               <td><span class="flight-tag" :class="flight.status">{{ statuses[flight.status] ?? flight.status }}</span>
                 <small v-if="flight.errorMessage">{{ flight.errorMessage }}</small>
