@@ -72,3 +72,12 @@ growth-report:
 
 knowledge:
   admin-token: ${KNOWLEDGE_ADMIN_TOKEN:}
+
+iot:
+  access:
+    anonymous-read: ${IOT_ANONYMOUS_READ:false}
+    admin-token: ${IOT_ADMIN_TOKEN:}
+    operator-token: ${IOT_OPERATOR_TOKEN:}
+    viewer-token: ${IOT_VIEWER_TOKEN:}
+    operator-fields: ${IOT_OPERATOR_FIELDS:}
+    viewer-fields: ${IOT_VIEWER_FIELDS:}

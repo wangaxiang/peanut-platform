@@ -5,7 +5,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright-core')
 
 const origin = process.env.PEANUT_PATROL_TEST_URL
 const container = process.env.PEANUT_PATROL_TEST_AI_CONTAINER
-if (process.env.PEANUT_DISPOSABLE_PATROL_TEST !== 'true' || !origin || !container?.startsWith('peanut-device-qa-')) {
+const token = process.env.PEANUT_PATROL_TEST_TOKEN
+if (process.env.PEANUT_DISPOSABLE_PATROL_TEST !== 'true' || !origin || !token || !container?.startsWith('peanut-device-qa-')) {
   throw new Error('Specify the isolated patrol test environment and its AI container')
 }
 const prefix = 'qa-browser-' + Date.now()
@@ -30,6 +31,7 @@ async function main() {
   async function choose(dialog, label, option, exact = true) {
     const input = page.getByRole('combobox', { name: label, exact: true })
     await dialog.locator('.el-select').filter({ has: input }).click()
+    await input.fill(option)
     await page.getByRole('option', { name: option, exact }).click()
   }
 
@@ -46,11 +48,16 @@ async function main() {
   async function add(type, suffix, dock) {
     await page.getByRole('button', { name: '添加设备' }).click()
     const dialog = page.getByRole('dialog')
-    if (type !== '无人机') await choose(dialog, '设备类型', type)
-    await dialog.locator('#device-name').fill(prefix + suffix)
-    await dialog.locator('#device-sn').fill(prefix + suffix)
+    await dialog.locator('#wizard-type option[value="'+type+'"]').waitFor({state:'attached'})
+    await dialog.locator('#wizard-type').selectOption(type)
+    await dialog.getByRole('button', { name: '下一步' }).click()
+    await dialog.locator('#wizard-name').fill(prefix + suffix)
+    await dialog.locator('#wizard-sn').fill(prefix + suffix)
+    await dialog.getByRole('button', { name: '下一步' }).click()
     await choose(dialog, '选择所属地块', prefix)
-    if (dock) await choose(dialog, '关联机库', dock.deviceName, false)
+    if (dock) await dialog.locator('#wizard-dock').selectOption(String(dock.id))
+    await dialog.getByRole('button', { name: '下一步' }).click()
+    await dialog.getByRole('button', { name: '下一步' }).click()
     return save(dialog, '保存设备', '/api/patrol/devices')
   }
 
@@ -60,15 +67,22 @@ async function main() {
     } })
     assert(field.ok(), await field.text())
     await page.goto(origin + '/#/patrol/devices')
-    const dock = await add('机库', '-dock')
-    const drone = await add('无人机', '-drone', dock)
-    const sensor = await add('巡田传感器', '-sensor')
+    await page.getByRole('button',{name:'访问权限',exact:true}).click()
+    const access=page.getByRole('dialog',{name:'设备访问权限'})
+    await access.locator('#iot-token').fill(token)
+    await access.getByRole('button',{name:'应用权限'}).click()
+    await access.waitFor({state:'hidden'})
+    const dock = await add('dock', '-dock')
+    const drone = await add('drone', '-drone', dock)
+    const sensor = await add('sensor', '-sensor')
     assert.equal(drone.parentDeviceId, dock.id)
 
     let row = page.getByRole('row').filter({ hasText: drone.deviceName })
     await row.getByRole('button', { name: '编辑', exact: true }).click()
     let dialog = page.getByRole('dialog')
-    await dialog.locator('#device-name').fill(drone.deviceName + '-edited')
+    await dialog.getByRole('button', { name: '下一步' }).click()
+    await dialog.locator('#wizard-name').fill(drone.deviceName + '-edited')
+    for (let step = 0; step < 3; step++) await dialog.getByRole('button', { name: '下一步' }).click()
     const edited = await save(dialog, '保存设备', '/api/patrol/devices/' + drone.id)
     row = page.getByRole('row').filter({ hasText: edited.deviceName })
     await row.getByRole('button', { name: '停用', exact: true }).click()
@@ -101,7 +115,11 @@ async function main() {
     row = page.getByRole('row').filter({ hasText: sensor.deviceName })
     await row.getByRole('button', { name: '退役', exact: true }).click()
     await page.getByRole('button', { name: '确认退役', exact: true }).click()
-    await row.getByText('已退役', { exact: true }).waitFor()
+    await page.getByText('设备已退役', { exact: true }).waitFor()
+    await page.getByRole('button', { name: '更多筛选', exact: true }).click()
+    await page.getByRole('combobox', { name: '业务状态' }).selectOption('retired')
+    await page.getByRole('textbox', { name: '搜索设备' }).fill(sensor.deviceName)
+    await row.getByText(/退役/).waitFor()
     console.log('Edge: all three device types, binding, editing, enable/disable, maintenance, live status, task selection and retirement passed.')
 
     const fixture = JSON.parse(execFileSync('docker', ['exec', container, 'cat', '/tmp/patrol-device-fixture.json'], { encoding: 'utf8' }))

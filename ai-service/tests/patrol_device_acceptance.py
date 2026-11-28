@@ -30,7 +30,9 @@ TOPICS = {name: f"{PREFIX}-{name}" for name in ("drone", "dock", "sensor", "unkn
 
 
 def call(method, path, status=200, **kwargs):
-    response = requests.request(method, API + path, timeout=15, **kwargs)
+    token = os.getenv("PEANUT_PATROL_TEST_TOKEN")
+    headers = {"Authorization": "Bearer " + token} if token else {}
+    response = requests.request(method, API + path, timeout=15, headers=headers, **kwargs)
     assert response.status_code == status, (path, response.status_code, response.text)
     return response.json().get("data") if status == 200 else response.json()
 

@@ -8,6 +8,8 @@ import java.util.Map;
 import java.util.Objects;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.peanut.module.iot.IotCatalog;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -18,76 +20,89 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
-class PatrolDeviceService {
-    private static final List<String> TYPES = List.of("drone", "dock", "sensor");
+public class PatrolDeviceService {
     private static final List<String> STATUSES = List.of("active", "inactive", "maintenance", "retired");
     static final List<String> METRICS = List.of("soil_temp", "soil_moisture", "soil_n", "soil_p", "soil_k");
     static final String SERIAL = "[A-Za-z0-9_-]{1,64}";
     private final PatrolDeviceRepository devices;
     private final PatrolRepository patrol;
+    private final IotCatalog catalog;
+    private final ObjectMapper json;
     private final Map<String, Long> timeoutSeconds;
 
-    PatrolDeviceService(PatrolDeviceRepository devices, PatrolRepository patrol,
+    PatrolDeviceService(PatrolDeviceRepository devices, PatrolRepository patrol, IotCatalog catalog, ObjectMapper json,
             @Value("${patrol.offline.drone-seconds:90}") long drone,
             @Value("${patrol.offline.dock-seconds:180}") long dock,
             @Value("${patrol.offline.sensor-seconds:180}") long sensor) {
         this.devices = devices;
         this.patrol = patrol;
+        this.catalog = catalog;
+        this.json = json;
         if (drone <= 0 || dock <= 0 || sensor <= 0) {
             throw new IllegalArgumentException("Patrol device offline thresholds must be positive");
         }
         timeoutSeconds = Map.of("drone", drone, "dock", dock, "sensor", sensor);
     }
 
-    Page<PatrolDevice> list(String type, Long fieldId, String status, Boolean online, String keyword,
-            Long taskFieldId, Pageable page) {
-        if ((type != null && !TYPES.contains(type)) || (status != null && !STATUSES.contains(status))) {
+    public Page<PatrolDevice> list(String type, Long fieldId, String status, Boolean online, String keyword,
+            Long taskFieldId, String source, Long groupId, List<Long> allowedFields, Pageable page) {
+        if ((status != null && !STATUSES.contains(status))
+                || (source != null && !List.of("simulated","real").contains(source))) {
             throw bad("设备类型或业务状态无效");
         }
-        return devices.list(type, fieldId, status, online, keyword, taskFieldId, page);
+        if (type != null) catalog.type(type);
+        return devices.list(type,fieldId,status,online,keyword,taskFieldId,source,groupId,allowedFields,page);
     }
 
-    Map<String, Object> stats() {
-        var types = devices.stats();
+    Map<String, Object> stats(List<Long> fields) {
+        var types = devices.stats(fields);
         Totals total = types.values().stream().reduce(new Totals(0,0,0,0), Totals::plus);
         return Map.of("total",total.total(),"online",total.online(),"offline",total.offline(),
                 "maintenance",total.maintenance(),"byType",types);
     }
 
-    PatrolDevice get(long id) {
+    public PatrolDevice get(long id) {
         return devices.find(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "设备不存在"));
     }
 
     @Transactional
-    public PatrolDevice create(DeviceInput input) {
+    public PatrolDevice create(DeviceInput input, String actor) {
         devices.lockRegistry();
-        validateMetadata(input, null);
-        return get(devices.insert(input).orElseThrow(() -> bad("设备序列号已登记")));
+        var type = validateMetadata(input,null);
+        long id = devices.insert(input).orElseThrow(() -> bad("设备序列号已登记"));
+        extend(id,input,type,null);
+        catalog.event(id,input.fieldId(),"device_created","登记设备",actor,null);
+        return get(id);
     }
 
     @Transactional
-    public PatrolDevice update(long id, DeviceInput input) {
+    public PatrolDevice update(long id, DeviceInput input, String actor) {
         devices.lockRegistry();
         PatrolDevice current = get(id);
         mutable(current);
         if (!current.deviceSn().equals(input.deviceSn()) || !current.deviceType().equals(input.deviceType())) {
             throw bad("设备类型和序列号在登记后固定");
         }
-        validateMetadata(input, id);
+        var type = validateMetadata(input,id);
         devices.update(id, input);
+        extend(id,input,type,current);
+        catalog.event(id,input.fieldId(),"device_updated","编辑设备",actor,null);
         return get(id);
     }
 
     @Transactional
-    public PatrolDevice setStatus(long id, String status) {
+    public PatrolDevice setStatus(long id, String status, String actor) {
         devices.lockRegistry();
-        mutable(get(id));
-        devices.setStatus(id, status);
+        PatrolDevice current = get(id);
+        mutable(current);
+        if ("active".equals(status) && !catalog.type(current.deviceType()).enabled()) throw bad("请先启用设备类型");
+        devices.setStatus(id,status,null);
+        catalog.event(id,current.fieldId(),"device_status","修改设备状态",actor,json.createObjectNode().put("status",status));
         return get(id);
     }
 
     @Transactional
-    public PatrolDevice retire(long id) {
+    public PatrolDevice retire(long id, String reason, String actor) {
         devices.lockRegistry();
         PatrolDevice device = get(id);
         if ("retired".equals(device.status())) {
@@ -96,7 +111,8 @@ class PatrolDeviceService {
         if (devices.hasActiveReferences(id)) {
             throw conflict("设备仍关联启用任务、未结束飞行或在用无人机，暂不能退役");
         }
-        devices.setStatus(id, "retired");
+        devices.setStatus(id,"retired",reason);
+        catalog.event(id,device.fieldId(),"device_retired","设备退役",actor,null);
         return get(id);
     }
 
@@ -128,7 +144,8 @@ class PatrolDeviceService {
             throw conflict("历史任务须先核对并绑定已登记的无人机");
         }
         PatrolDevice drone = get(id);
-        if (!"drone".equals(drone.deviceType()) || !"active".equals(drone.status())) {
+        if (!"drone".equals(drone.deviceType()) || !"active".equals(drone.status())
+                || !"real".equals(drone.accessMode()) || !catalog.type(drone.deviceType()).enabled()) {
             throw conflict("请选择已启用的无人机，停用、维护中和退役设备不可下发");
         }
         if (drone.fieldId() != null && drone.fieldId() != fieldId) {
@@ -142,7 +159,7 @@ class PatrolDeviceService {
                 throw conflict("自动起降任务需要先绑定机库");
             }
             PatrolDevice dock = get(drone.parentDeviceId());
-            if (!"active".equals(dock.status()) || !isOnline(dock)) {
+            if (!"active".equals(dock.status()) || !"real".equals(dock.accessMode()) || !isOnline(dock)) {
                 throw conflict("自动起降所需机库未启用或离线");
             }
             if (dock.fieldId() != null && dock.fieldId() != fieldId) {
@@ -159,7 +176,8 @@ class PatrolDeviceService {
 
     Long activeSensorField(String serial) {
         PatrolDevice sensor = sensor(serial);
-        if (!"active".equals(sensor.status())) {
+        if (!"active".equals(sensor.status()) || !"real".equals(sensor.accessMode())
+                || !catalog.type(sensor.deviceType()).enabled()) {
             throw conflict("传感器当前未启用");
         }
         return sensor.fieldId();
@@ -200,6 +218,7 @@ class PatrolDeviceService {
     void expireDevices() {
         Instant now = Instant.now();
         timeoutSeconds.forEach((type, seconds) -> devices.expire(type, now.minusSeconds(seconds)));
+        devices.expireExtended();
     }
 
     private boolean isOnline(PatrolDevice row) {
@@ -207,12 +226,20 @@ class PatrolDeviceService {
                 && row.lastSeenAt().isAfter(Instant.now().minusSeconds(timeoutSeconds.get(row.deviceType())));
     }
 
-    private void validateMetadata(DeviceInput input, Long id) {
-        if (input.capabilities() != null && !input.capabilities().isObject()) {
+    public void preview(DeviceInput input) {
+        var type = validateMetadata(input,null);
+        validateConnection(input,type,null);
+        if (devices.serialExists(input.deviceSn())) throw bad("设备序列号已登记");
+    }
+
+    private IotCatalog.DeviceType validateMetadata(DeviceInput input, Long id) {
+        var type = catalog.type(input.deviceType());
+        if (id == null && !type.enabled()) throw bad("设备类型已停用");
+        if (input.capabilities() != null && !input.capabilities().isNull() && !input.capabilities().isObject()) {
             throw bad("设备能力必须是 JSON 对象");
         }
-        if ("sensor".equals(input.deviceType()) && input.fieldId() == null) {
-            throw bad("巡田传感器必须绑定地块");
+        if (("sensor".equals(input.deviceType()) || type.needsField()) && input.fieldId() == null) {
+            throw bad("此类型设备必须绑定地块");
         }
         if (input.fieldId() != null && !patrol.fieldExists(input.fieldId())) {
             throw bad("绑定地块不存在");
@@ -222,8 +249,8 @@ class PatrolDeviceService {
                 throw bad("只有无人机可绑定机库");
             }
             PatrolDevice parent = devices.find(input.parentDeviceId()).orElseThrow(() -> bad("关联机库不存在"));
-            if (!"dock".equals(parent.deviceType()) || "retired".equals(parent.status())) {
-                throw bad("请选择有效机库");
+            if (!"dock".equals(parent.deviceType()) || !"active".equals(parent.status())) {
+                throw bad("请选择已启用的机库");
             }
             if (input.fieldId() != null && parent.fieldId() != null && !input.fieldId().equals(parent.fieldId())) {
                 throw bad("无人机与机库必须绑定同一地块，或保持一方为共享设备");
@@ -237,6 +264,35 @@ class PatrolDeviceService {
                 throw conflict("修改无人机地块将与已启用任务冲突");
             }
         }
+        return type;
+    }
+
+    private record Connection(String mode, String protocol, Integer interval, List<String> codes) {}
+
+    private Connection validateConnection(DeviceInput input, IotCatalog.DeviceType type, PatrolDevice current) {
+        String mode = Objects.requireNonNullElse(input.accessMode(),current == null ? "real" : current.accessMode());
+        if (current != null && !mode.equals(current.accessMode())) throw bad("设备登记后不可切换真实／模拟来源");
+        String protocol = Objects.requireNonNullElse(input.protocol(),
+                current == null ? ("simulated".equals(mode) ? "simulator" : "mqtt") : current.protocol());
+        if ("simulated".equals(mode) != "simulator".equals(protocol)) throw bad("模拟设备必须使用模拟协议");
+        if (input.parentDeviceId() != null && !mode.equals(get(input.parentDeviceId()).accessMode())) {
+            throw bad("无人机与机库须使用相同的接入来源");
+        }
+        Integer interval = input.sampleIntervalSeconds();
+        if (interval == null && current != null) interval = current.sampleIntervalSeconds();
+        if (interval == null) interval = "simulated".equals(mode) ? Integer.valueOf(60) : type.defaultSampleIntervalSeconds();
+        List<String> codes = input.metricCodes();
+        if (codes != null || current == null) codes = catalog.validateMetrics(codes == null ? type.suggestedMetrics() : codes);
+        if ("simulated".equals(mode) && codes != null && codes.isEmpty()) throw bad("模拟设备至少需要一个指标");
+        return new Connection(mode,protocol,interval,codes);
+    }
+
+    private void extend(long id, DeviceInput input, IotCatalog.DeviceType type, PatrolDevice current) {
+        Connection connection = validateConnection(input,type,current);
+        devices.setExtended(id,input,connection.mode(),connection.protocol(),connection.interval(),
+                input.tags() == null ? null : json.valueToTree(input.tags().stream().map(String::strip).distinct().toList()).toString());
+        if (connection.codes() != null) catalog.setCapabilities(id,connection.codes());
+        if ("simulated".equals(connection.mode())) devices.ensureSimulator(id,connection.interval());
     }
 
     private static boolean validTelemetry(JsonNode data) {

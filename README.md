@@ -35,7 +35,11 @@ docker compose exec ollama ollama pull qwen2:7b
 
 ## 智能巡田与土壤监测
 
-在「智能巡田 → 设备管理」登记无人机、机库与巡田传感器。传感器必选地块，无人机可关联同地块或共享机库。详情页显示电量、位置、故障、最近上报及维护历史。设备支持停用、维护中和逻辑退役，退役会保留历史。无人机 90 秒、机库与传感器 180 秒未上报后判为离线，可通过对应的 `PATROL_DRONE_OFFLINE_SECONDS`、`PATROL_DOCK_OFFLINE_SECONDS`、`PATROL_SENSOR_OFFLINE_SECONDS` 配置调整。
+在「设备管理」通过五步向导登记无人机、机库、巡田传感器、气象站、虫情灯、孢子捕捉器、叶面传感器或管理员创建的设备类型。支持指标配置、设备分组、CSV 导入预览及导出。巡田传感器必选地块，无人机可关联同地块或共享机库。详情页显示电量、位置、故障、最近上报及维护历史。设备支持停用、维护中和逻辑退役，退役会保留历史。真实无人机默认 90 秒、真实机库与巡田传感器默认 180 秒未上报判为离线；可通过原有 `PATROL_*_OFFLINE_SECONDS` 环境变量调整。
+
+在「模拟设备实验室」用模板创建土壤多参数、气象或其他模拟设备，为其选择地块、配置采样间隔和场景。启动后由后端统一校验并写入 InfluxDB，可查看设备最新值、最近采样和运行事件。暂停或停止期间保留历史。模拟设备不能用于真实飞行任务。设备列表和详情页均显示模拟来源。
+
+设备页右上角的「访问权限」接受 `IOT_ADMIN_TOKEN`、`IOT_OPERATOR_TOKEN` 或 `IOT_VIEWER_TOKEN`。管理员可管理类型、批量导入、退役及控制模拟器。操作员和查看者的地块范围通过 `IOT_OPERATOR_FIELDS` 和 `IOT_VIEWER_FIELDS` 配置，值为逗号分隔的数字地块 ID。默认 Compose 绑定本机并允许匿名只读，远程部署应设置 `IOT_ANONYMOUS_READ=false`，通过认证接入。可通过 Compose 额外的 `--env-file` 传入本地私有文件，应用权限后在当前页面会话中生效。
 
 在「巡田任务」选择地块和已登记、启用且在线的无人机，填写由 GeoJSON Point 要素组成的航线。执行计划支持单次日期、周期 cron 和仅手动执行。选定自动起降时，关联机库也须启用且在线。
 
@@ -51,12 +55,19 @@ docker compose exec ollama ollama pull qwen2:7b
 
 ```powershell
 $qa = @('-p','peanut-device-qa','-f','docker-compose.yml','-f','infra/compose.patrol-qa.yml')
+$env:IOT_ADMIN_TOKEN = 'qa-stage-a-admin'
+$env:IOT_OPERATOR_TOKEN = 'qa-stage-a-operator'
+$env:IOT_OPERATOR_FIELDS = '999999'
 docker compose @qa up -d --no-build --wait backend ai-service frontend
+Get-Content -Raw -Encoding UTF8 ai-service/tests/iot_stage_a_acceptance.py |
+  docker compose @qa exec -T -e PEANUT_DISPOSABLE_PATROL_TEST=true -e PEANUT_PATROL_TEST_TOKEN=qa-stage-a-admin ai-service python -u -
 Get-Content -Raw -Encoding UTF8 ai-service/tests/patrol_device_acceptance.py |
-  docker compose @qa exec -T -e PEANUT_DISPOSABLE_PATROL_TEST=true ai-service python -u -
+  docker compose @qa exec -T -e PEANUT_DISPOSABLE_PATROL_TEST=true -e PEANUT_PATROL_TEST_TOKEN=qa-stage-a-admin ai-service python -u -
 $env:PEANUT_DISPOSABLE_PATROL_TEST = 'true'
 $env:PEANUT_PATROL_TEST_URL = 'http://127.0.0.1:13000'
 $env:PEANUT_PATROL_TEST_AI_CONTAINER = 'peanut-device-qa-ai-service-1'
+$env:PEANUT_PATROL_TEST_TOKEN = 'qa-stage-a-admin'
+node frontend/tests/iot-stage-a.cjs
 node frontend/tests/patrol-device.cjs
 docker compose @qa stop
 ```

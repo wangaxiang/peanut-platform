@@ -22,11 +22,15 @@ import org.springframework.stereotype.Repository;
 class PatrolDeviceRepository {
     private static final String COLUMNS = """
             SELECT d.*, f.name AS field_name, parent.device_name AS parent_name,
-                   parent.device_sn AS parent_sn, parent.online AS parent_online
+                   parent.device_sn AS parent_sn, parent.online AS parent_online, dtype.name AS device_type_name,
+                   coalesce((SELECT jsonb_agg(m.metric_code ORDER BY m.metric_code) FROM iot_device_metric_capability m
+                     JOIN iot_metric_definition definition ON definition.code=m.metric_code AND definition.enabled
+                     WHERE m.device_id=d.id AND m.enabled),'[]') AS metric_codes, to_jsonb(d.device_tags) AS tags_json
             """;
     private static final String FROM = """
             FROM patrol_device d LEFT JOIN field f ON f.id=d.field_id
-            LEFT JOIN patrol_device parent ON parent.id=d.parent_device_id WHERE true
+            LEFT JOIN patrol_device parent ON parent.id=d.parent_device_id
+            JOIN iot_device_type dtype ON dtype.code=d.device_type WHERE true
             """;
     private final JdbcClient jdbc;
     private final ObjectMapper json;
@@ -60,22 +64,39 @@ class PatrolDeviceRepository {
     }
 
     Page<PatrolDevice> list(String type, Long field, String status, Boolean online, String keyword,
-            Long taskFieldId, Pageable page) {
+            Long taskFieldId, String source, Long groupId, List<Long> allowedFields, Pageable page) {
         var where = new StringBuilder(FROM);
         var params = new LinkedHashMap<String, Object>();
         filter(where, params, "d.device_type", "type", type);
         filter(where, params, "d.field_id", "field", field);
         filter(where, params, "d.status", "status", status);
         filter(where, params, "d.online", "online", online);
+        filter(where, params, "d.access_mode", "source", source);
+        if (groupId != null) {
+            where.append(" AND EXISTS(SELECT 1 FROM iot_device_group_member WHERE device_id=d.id AND group_id=:groupId)");
+            params.put("groupId",groupId);
+        }
+        if (allowedFields != null) {
+            if (allowedFields.isEmpty()) return Page.empty(page);
+            where.append(" AND d.field_id IN (:allowedFields)");
+            params.put("allowedFields",allowedFields);
+        }
         if (keyword != null && !keyword.isBlank()) {
             where.append(" AND (strpos(lower(d.device_name),lower(:keyword))>0 OR strpos(lower(d.device_sn),lower(:keyword))>0)");
             params.put("keyword", keyword.strip());
         }
         if (taskFieldId != null) {
-            where.append(" AND d.device_type='drone' AND d.status='active' AND (d.field_id IS NULL OR d.field_id=:taskField)");
+            where.append(" AND d.device_type='drone' AND d.access_mode='real' AND dtype.enabled AND d.status='active' AND (d.field_id IS NULL OR d.field_id=:taskField)");
             params.put("taskField", taskFieldId);
         }
-        var rows = jdbc.sql(COLUMNS + where + " ORDER BY d.id DESC LIMIT :size OFFSET :offset").params(params)
+        String ordering = page.getSort().stream().filter(order -> List.of("createdAt","deviceName","deviceSn","lastSeenAt").contains(order.getProperty()))
+                .map(order -> switch (order.getProperty()) {
+                    case "deviceName" -> "d.device_name";
+                    case "deviceSn" -> "d.device_sn";
+                    case "lastSeenAt" -> "d.last_seen_at";
+                    default -> "d.created_at";
+                } + (order.isAscending() ? " ASC" : " DESC") + " NULLS LAST, ").findFirst().orElse("");
+        var rows = jdbc.sql(COLUMNS + where + " ORDER BY " + ordering + "d.id DESC LIMIT :size OFFSET :offset").params(params)
                 .param("size", page.getPageSize()).param("offset", page.getOffset()).query(this::device).list();
         long count = jdbc.sql("SELECT count(*) " + where).params(params).query(Long.class).single();
         return new PageImpl<>(rows, page, count);
@@ -88,16 +109,19 @@ class PatrolDeviceRepository {
         }
     }
 
-    Map<String, Totals> stats() {
+    Map<String, Totals> stats(List<Long> allowedFields) {
         var result = new LinkedHashMap<String, Totals>();
         for (String type : new String[]{"drone", "dock", "sensor"}) {
             result.put(type, new Totals(0,0,0,0));
         }
-        jdbc.sql("""
+        if (allowedFields != null && allowedFields.isEmpty()) return result;
+        var query=jdbc.sql("""
                 SELECT device_type, count(*) AS total, count(*) FILTER (WHERE online) AS online,
                        count(*) FILTER (WHERE status='maintenance') AS maintenance
-                FROM patrol_device GROUP BY device_type ORDER BY device_type
-                """).query((rs, n) -> {
+                FROM patrol_device
+                """ + (allowedFields == null ? "" : " WHERE field_id IN (:fields)") + " GROUP BY device_type ORDER BY device_type");
+        if (allowedFields != null) query.param("fields",allowedFields);
+        query.query((rs, n) -> {
                     long total = rs.getLong("total"), online = rs.getLong("online");
                     result.put(rs.getString("device_type"), new Totals(total, online, total-online, rs.getLong("maintenance")));
                     return true;
@@ -115,6 +139,32 @@ class PatrolDeviceRepository {
                 .query(Long.class).optional();
     }
 
+    boolean serialExists(String serial) {
+        return jdbc.sql("SELECT EXISTS(SELECT 1 FROM patrol_device WHERE device_sn=:sn)")
+                .param("sn",serial).query(Boolean.class).single();
+    }
+
+    void setExtended(long id, DeviceInput input, String accessMode, String protocol, Integer sample, String tags) {
+        jdbc.sql("""
+                UPDATE patrol_device SET access_mode=:mode,protocol=:protocol,sample_interval_seconds=:sample,
+                    install_location=coalesce(:location,install_location),firmware_version=coalesce(:firmware,firmware_version),
+                    longitude=coalesce(CAST(:lng AS numeric),longitude),latitude=coalesce(CAST(:lat AS numeric),latitude),
+                    device_tags=CASE WHEN CAST(:tags AS jsonb) IS NULL THEN device_tags
+                      ELSE ARRAY(SELECT jsonb_array_elements_text(CAST(:tags AS jsonb))) END
+                WHERE id=:id
+                """).param("id",id).param("mode",accessMode).param("protocol",protocol).param("sample",sample)
+                .param("location",input.installLocation()).param("firmware",input.firmwareVersion())
+                .param("lng",input.longitude()).param("lat",input.latitude()).param("tags",tags).update();
+    }
+
+    void ensureSimulator(long id, int interval) {
+        jdbc.sql("""
+                INSERT INTO iot_simulator_profile(device_id,sample_interval_seconds,run_id)
+                VALUES (:id,:interval,:run)
+                ON CONFLICT (device_id) DO UPDATE SET sample_interval_seconds=EXCLUDED.sample_interval_seconds
+                """).param("id",id).param("interval",interval).param("run",java.util.UUID.randomUUID()).update();
+    }
+
     void update(long id, DeviceInput input) {
         jdbc.sql("""
                 UPDATE patrol_device SET device_name=:name,brand=:brand,model=:model,field_id=:field,
@@ -130,17 +180,24 @@ class PatrolDeviceRepository {
         values.put("model", input.model());
         values.put("field", input.fieldId());
         values.put("parent", input.parentDeviceId());
-        values.put("cap", input.capabilities() == null ? "{}" : input.capabilities().toString());
+        values.put("cap", input.capabilities() == null || input.capabilities().isNull() ? "{}" : input.capabilities().toString());
         values.put("installed", PatrolRepository.timestamp(input.installedAt()));
         values.put("remark", input.remark());
         return values;
     }
 
-    void setStatus(long id, String status) {
+    void setStatus(long id, String status, String reason) {
         jdbc.sql("""
-                UPDATE patrol_device SET status=:status, online=CASE WHEN :status='retired' THEN false ELSE online END,
+                UPDATE patrol_device SET status=:status, online=CASE
+                    WHEN :status='retired' OR (access_mode='simulated' AND :status<>'active') THEN false ELSE online END,
+                    retired_at=CASE WHEN :status='retired' THEN now() ELSE retired_at END,
+                    retired_reason=coalesce(:reason,retired_reason),
                     updated_at=now() WHERE id=:id
-                """).param("id", id).param("status", status).update();
+                """).param("id", id).param("status", status).param("reason",reason).update();
+        if (!"active".equals(status)) {
+            jdbc.sql("UPDATE iot_simulator_profile SET simulator_status='stopped',next_sample_at=NULL WHERE device_id=:id")
+                    .param("id",id).update();
+        }
     }
 
     boolean hasActiveReferences(long id) {
@@ -177,7 +234,7 @@ class PatrolDeviceRepository {
                   fault_message=CASE WHEN jsonb_exists(data.report,'faultMessage') THEN left(data.report->>'faultMessage',4000) ELSE fault_message END,
                   updated_at=now()
                 FROM (SELECT CAST(:report AS jsonb) AS report) data WHERE d.id=:id AND d.device_type=:type
-                  AND d.status<>'retired' AND (NOT :activeOnly OR (d.status='active' AND d.field_id=CAST(:field AS bigint)))
+                  AND d.access_mode='real' AND d.status='active' AND (NOT :activeOnly OR d.field_id=CAST(:field AS bigint))
                 """)
                 .param("id",id).param("type",type).param("report",raw).param("activeOnly",activeOnly)
                 .param("field", field).update() == 1;
@@ -186,8 +243,19 @@ class PatrolDeviceRepository {
     void expire(String type, Instant threshold) {
         jdbc.sql("""
                 UPDATE patrol_device SET online=false,updated_at=now()
-                WHERE device_type=:type AND online AND last_seen_at<=:threshold
+                WHERE device_type=:type AND access_mode='real' AND online AND last_seen_at<=:threshold
                 """).param("type",type).param("threshold",PatrolRepository.timestamp(threshold)).update();
+    }
+
+    void expireExtended() {
+        jdbc.sql("""
+                UPDATE patrol_device d SET online=false,updated_at=now()
+                FROM iot_device_type t WHERE t.code=d.device_type AND d.online AND d.last_seen_at IS NOT NULL
+                  AND (d.access_mode='simulated' OR d.device_type NOT IN ('drone','dock','sensor'))
+                  AND d.last_seen_at<=now()-make_interval(secs=>CASE
+                    WHEN d.access_mode='simulated' THEN coalesce(d.sample_interval_seconds,60)*3
+                    ELSE greatest(coalesce(d.sample_interval_seconds,0)*3,t.default_offline_timeout_seconds) END)
+                """).update();
     }
 
     Page<Maintenance> maintenance(long id, Pageable page) {
@@ -236,7 +304,10 @@ class PatrolDeviceRepository {
                 readJson(rs,"capabilities"),rs.getString("fault_code"),rs.getString("fault_message"),
                 PatrolRepository.time(rs,"installed_at"),PatrolRepository.time(rs,"last_maintenance_at"),
                 PatrolRepository.time(rs,"next_maintenance_at"),rs.getString("remark"),PatrolRepository.time(rs,"created_at"),
-                PatrolRepository.time(rs,"updated_at"));
+                PatrolRepository.time(rs,"updated_at"),rs.getString("device_type_name"),rs.getString("access_mode"),
+                rs.getString("protocol"),rs.getString("install_location"),rs.getObject("sample_interval_seconds",Integer.class),
+                number(rs,"signal_strength_pct"),PatrolRepository.time(rs,"last_telemetry_at"),readJson(rs,"metric_codes"),
+                readJson(rs,"tags_json"),readJson(rs,"latest_metrics"),PatrolRepository.time(rs,"retired_at"),rs.getString("retired_reason"));
     }
 
     private static Double number(ResultSet rs, String column) throws SQLException {

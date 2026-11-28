@@ -1,6 +1,8 @@
 import axios from 'axios'
+import { iotHeaders } from './iot'
 
 const client = axios.create({ baseURL: '/api/patrol/devices', timeout: 15000 })
+client.interceptors.request.use(iotHeaders)
 const data = response => response.data.data
 export const getDevices = params => client.get('', { params }).then(data)
 export const getDevice = id => client.get(`/${id}`).then(data)
